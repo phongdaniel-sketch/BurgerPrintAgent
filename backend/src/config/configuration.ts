@@ -17,6 +17,8 @@ export interface LlmConfig {
   model: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  /** Override endpoint cho OpenAI-compatible API (proxy/Azure/OpenRouter/local). */
+  openaiBaseUrl?: string;
 }
 export interface BurgerPrintsConfig {
   baseUrl: string;
@@ -52,6 +54,7 @@ export default (): RootConfig => ({
         : 'claude-sonnet-4-5'),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
+    openaiBaseUrl: process.env.OPENAI_BASE_URL || undefined,
   },
   burgerprints: {
     baseUrl: process.env.BURGERPRINTS_API_BASE_URL as string,

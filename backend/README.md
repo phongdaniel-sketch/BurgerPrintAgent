@@ -80,6 +80,7 @@ Chi tiết: [`../specs/001-nestjs-backend-foundation/contracts/`](../specs/001-n
 | `LLM_PROVIDER` | **có** | anthropic | `anthropic` \| `openai` |
 | `ANTHROPIC_API_KEY` | conditional | — | bắt buộc nếu provider=anthropic |
 | `OPENAI_API_KEY` | conditional | — | bắt buộc nếu provider=openai |
+| `OPENAI_BASE_URL` | không | — | override endpoint OpenAI-compatible (proxy/Azure/OpenRouter/local) |
 | `BURGERPRINTS_API_BASE_URL` | **có** | — | base URL API v2.0 |
 | `BURGERPRINTS_API_KEY` | **có** | — | key BurgerPrints (BTC cấp) |
 | `CATALOG_CACHE_TTL_SECONDS` | không | 300 | TTL cache catalog |

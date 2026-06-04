@@ -57,6 +57,13 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     try {
       // pi-ai tự đọc API key từ env (ANTHROPIC_API_KEY / OPENAI_API_KEY).
       const model = getModel(provider, modelId);
+
+      // Override endpoint cho OpenAI-compatible API (proxy/Azure/OpenRouter/local).
+      const openaiBaseUrl = this.config.get<string>('llm.openaiBaseUrl');
+      if (provider === 'openai' && openaiBaseUrl) {
+        model.baseUrl = openaiBaseUrl;
+      }
+
       agent = new Agent({
         initialState: {
           systemPrompt: this.buildSystemPrompt(input),

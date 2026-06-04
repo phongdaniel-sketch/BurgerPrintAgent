@@ -24,6 +24,7 @@ export const envValidationSchema = Joi.object({
     then: Joi.required(),
     otherwise: Joi.optional().allow(''),
   }),
+  OPENAI_BASE_URL: Joi.string().uri().optional().allow(''),
 
   BURGERPRINTS_API_BASE_URL: Joi.string().uri().required(),
   BURGERPRINTS_API_KEY: Joi.string().required(),
