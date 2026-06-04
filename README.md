@@ -6,7 +6,11 @@ AI chatbot hội thoại giúp **sellers POD** trên BurgerPrints tìm kiếm, s
 fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ tự nhiên (VN/EN)**, dùng
 **BurgerPrints API v2.0** làm nguồn dữ liệu thật. Đề tài **BP1** (nhà tài trợ: BurgerPrints).
 
-## ✨ Tính năng
+## ✨ Tính năng (dự kiến)
+
+> ⚠️ **Trạng thái: đang phát triển.** Đây là phạm vi/mục tiêu của sản phẩm. Hiện mới
+> hoàn thiện phần **nền tảng backend** (xem [Roadmap](#️-roadmap)); các tính năng dưới đây
+> là định hướng dự kiến, chưa hoàn thiện toàn bộ.
 
 - 💬 **Hội thoại nhiều lượt**, giữ ngữ cảnh — không phải form filter tĩnh
 - ⚡ **Streaming real-time qua SSE** — câu trả lời hiện dần token-by-token
@@ -89,7 +93,10 @@ Mọi credential nạp từ env; **không hardcode**. `.env` đã gitignore — 
 
 ## 🗺️ Roadmap
 
-- [x] Nền tảng backend: hội thoại SSE, pi-agent-core, Redis, BurgerPrints client
+- [x] Nền tảng backend (foundation): khung hội thoại SSE, port `AgentRuntime`, Redis session, BurgerPrints client
+- [ ] Hoàn thiện luồng agent tra cứu + so sánh catalog end-to-end
 - [ ] System prompt tư vấn fulfillment chi tiết (so sánh giá/xưởng/margin)
 - [ ] Tạo đơn hàng tự động (`POST /v2/order` + `sandbox`) — bonus đề bài
 - [ ] Giao diện cho seller (web/CLI/Telegram)
+
+> Tiến độ hiện tại: **nền tảng backend** (~30%). Các hạng mục còn lại đang triển khai.
