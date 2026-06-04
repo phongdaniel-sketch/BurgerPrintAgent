@@ -17,7 +17,6 @@ export interface LlmConfig {
   model: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
-  useFakeAgent: boolean;
 }
 export interface BurgerPrintsConfig {
   baseUrl: string;
@@ -32,9 +31,6 @@ export interface RootConfig {
   llm: LlmConfig;
   burgerprints: BurgerPrintsConfig;
 }
-
-const toBool = (v: string | undefined, def = false): boolean =>
-  v === undefined ? def : ['1', 'true', 'yes', 'on'].includes(v.toLowerCase());
 
 export default (): RootConfig => ({
   app: {
@@ -56,7 +52,6 @@ export default (): RootConfig => ({
         : 'claude-sonnet-4-5'),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
-    useFakeAgent: toBool(process.env.USE_FAKE_AGENT, false),
   },
   burgerprints: {
     baseUrl: process.env.BURGERPRINTS_API_BASE_URL as string,

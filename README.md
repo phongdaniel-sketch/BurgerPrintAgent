@@ -25,19 +25,17 @@ fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ 
                     ┌──────────────────────── backend/ (NestJS) ────────────────────────┐
   Client ──SSE──►   │  conversation (@Sse)  ──►  AgentRuntime (port)                     │
   (web/CLI/...)     │        │                        │                                  │
-                    │        │                  ┌─────┴─────────────┐                    │
-                    │        ▼                  ▼                   ▼                    │
-                    │   session (Redis)   pi-agent-core      FakeAgentRuntime            │
-                    │   hash+list+TTL     (in-process,        (USE_FAKE_AGENT,           │
-                    │                      ESM, push→pull)     demo không cần key)        │
-                    │        │                  │                                        │
-                    │        ▼                  ▼ tool: burgerprints_search              │
-                    │     Redis           BurgerPrints API v2.0 (+ cache Redis)          │
+                    │        ▼                        ▼                                  │
+                    │   session (Redis)         pi-agent-core                            │
+                    │   hash+list+TTL           (in-process, ESM, push→pull)             │
+                    │        │                        │                                  │
+                    │        ▼                        ▼ tool: burgerprints_search        │
+                    │     Redis                 BurgerPrints API v2.0 (+ cache Redis)     │
                     └────────────────────────────────────────────────────────────────────┘
 ```
 
-- Mỗi tích hợp ngoài nằm sau **module + port** riêng → cô lập, test được bằng fake.
-- Runtime agent thật: [`@earendil-works/pi-agent-core`](https://www.npmjs.com/package/@earendil-works/pi-agent-core) (bộ "Pi" toolkit), tích hợp in-process sau port `AgentRuntime`.
+- Mỗi tích hợp ngoài nằm sau **module + port** riêng → cô lập, dễ test (override port bằng double trong test).
+- Runtime agent: [`@earendil-works/pi-agent-core`](https://www.npmjs.com/package/@earendil-works/pi-agent-core) (bộ "Pi" toolkit), tích hợp in-process sau port `AgentRuntime`.
 
 ## 🚀 Cài đặt ≤ 10 phút
 
@@ -45,7 +43,6 @@ fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ 
 cd backend
 cp .env.example .env
 # Điền BURGERPRINTS_API_KEY + (ANTHROPIC_API_KEY hoặc OPENAI_API_KEY)
-# Demo nhanh không cần key LLM: giữ USE_FAKE_AGENT=true
 docker compose up --build
 ```
 

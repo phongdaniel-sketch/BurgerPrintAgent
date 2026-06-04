@@ -45,8 +45,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         type: 'error',
         code: 'AGENT_RUNTIME_UNAVAILABLE',
         message:
-          'pi-agent-core chưa cài. Chạy `npm i @earendil-works/pi-agent-core @earendil-works/pi-ai` ' +
-          'hoặc đặt USE_FAKE_AGENT=true để dùng runtime giả.',
+          'pi-agent-core chưa cài. Chạy `npm i @earendil-works/pi-agent-core @earendil-works/pi-ai`.',
       };
       return;
     }

@@ -16,25 +16,14 @@ export const envValidationSchema = Joi.object({
   LLM_MODEL: Joi.string().optional().allow(''),
   ANTHROPIC_API_KEY: Joi.string().when('LLM_PROVIDER', {
     is: 'anthropic',
-    then: Joi.when('USE_FAKE_AGENT', {
-      is: Joi.valid('true', '1', 'yes', 'on'),
-      then: Joi.optional().allow(''),
-      otherwise: Joi.required(),
-    }),
+    then: Joi.required(),
     otherwise: Joi.optional().allow(''),
   }),
   OPENAI_API_KEY: Joi.string().when('LLM_PROVIDER', {
     is: 'openai',
-    then: Joi.when('USE_FAKE_AGENT', {
-      is: Joi.valid('true', '1', 'yes', 'on'),
-      then: Joi.optional().allow(''),
-      otherwise: Joi.required(),
-    }),
+    then: Joi.required(),
     otherwise: Joi.optional().allow(''),
   }),
-  USE_FAKE_AGENT: Joi.string()
-    .valid('true', 'false', '1', '0', 'yes', 'no', 'on', 'off')
-    .default('false'),
 
   BURGERPRINTS_API_BASE_URL: Joi.string().uri().required(),
   BURGERPRINTS_API_KEY: Joi.string().required(),

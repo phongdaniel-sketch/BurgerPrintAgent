@@ -4,22 +4,18 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { RedisService } from '../../src/redis/redis.service';
 import { REDIS_CLIENT } from '../../src/redis/redis.module';
+import { AGENT_RUNTIME } from '../../src/agent/agent-runtime.port';
 import { InMemoryRedis } from '../in-memory-redis';
+import { FakeAgentRuntime } from '../fake-agent.runtime';
 
 /**
  * e2e US1: tạo phiên → stream nhận token...done; fallback trả reply.
- * Dùng FakeAgentRuntime (USE_FAKE_AGENT=true) + InMemoryRedis (không cần Redis thật).
+ * Override AGENT_RUNTIME = FakeAgentRuntime + InMemoryRedis (không cần LLM/Redis thật).
  */
 describe('Conversation (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    process.env.REDIS_URL = 'redis://localhost:6379';
-    process.env.LLM_PROVIDER = 'anthropic';
-    process.env.USE_FAKE_AGENT = 'true';
-    process.env.BURGERPRINTS_API_BASE_URL = 'https://api.example.com/v2';
-    process.env.BURGERPRINTS_API_KEY = 'test-key';
-
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -27,6 +23,8 @@ describe('Conversation (e2e)', () => {
       .useValue(new InMemoryRedis())
       .overrideProvider(REDIS_CLIENT)
       .useValue({ quit: async () => undefined, disconnect: () => undefined })
+      .overrideProvider(AGENT_RUNTIME)
+      .useValue(new FakeAgentRuntime())
       .compile();
 
     app = moduleRef.createNestApplication();

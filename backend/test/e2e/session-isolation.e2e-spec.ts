@@ -4,7 +4,9 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { RedisService } from '../../src/redis/redis.service';
 import { REDIS_CLIENT } from '../../src/redis/redis.module';
+import { AGENT_RUNTIME } from '../../src/agent/agent-runtime.port';
 import { InMemoryRedis } from '../in-memory-redis';
+import { FakeAgentRuntime } from '../fake-agent.runtime';
 
 /**
  * e2e US2 (SC-005): hai phiên độc lập không trộn lẫn lịch sử.
@@ -14,18 +16,14 @@ describe('Session isolation (e2e)', () => {
   let redis: InMemoryRedis;
 
   beforeAll(async () => {
-    process.env.REDIS_URL = 'redis://localhost:6379';
-    process.env.LLM_PROVIDER = 'anthropic';
-    process.env.USE_FAKE_AGENT = 'true';
-    process.env.BURGERPRINTS_API_BASE_URL = 'https://api.example.com/v2';
-    process.env.BURGERPRINTS_API_KEY = 'test-key';
-
     redis = new InMemoryRedis();
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(RedisService)
       .useValue(redis)
       .overrideProvider(REDIS_CLIENT)
       .useValue({ quit: async () => undefined, disconnect: () => undefined })
+      .overrideProvider(AGENT_RUNTIME)
+      .useValue(new FakeAgentRuntime())
       .compile();
 
     app = moduleRef.createNestApplication();
