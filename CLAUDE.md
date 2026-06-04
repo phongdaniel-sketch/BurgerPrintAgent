@@ -6,6 +6,8 @@ shell commands, and other important information, read the current plan:
 Active feature: **001-nestjs-backend-foundation** — NestJS (TS) backend foundation
 cho BurgerPrints chatbot agent. SSE streaming, pi-agent-core (in-process runtime
 sau port `AgentRuntime`), Redis session/cache, config-from-env + joi validation,
-docker-compose. Source dưới `backend/`. Spec & artifacts ở
-`specs/001-nestjs-backend-foundation/`.
+docker-compose. **Bổ sung**: Auth module (email/password + Google OAuth via
+Passport.js, JWT access+refresh tokens), MongoDB (Mongoose) cho persistent
+storage (User, Conversation, Message, RefreshToken). Source dưới `backend/`.
+Spec & artifacts ở `specs/001-nestjs-backend-foundation/`.
 <!-- SPECKIT END -->

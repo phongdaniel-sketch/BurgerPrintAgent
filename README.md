@@ -16,21 +16,22 @@ fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ 
 - ⚡ **Streaming real-time qua SSE** — câu trả lời hiện dần token-by-token
 - 🤖 **Agent có tool-calling** — tự tra cứu catalog BurgerPrints khi cần (không bịa dữ liệu)
 - 🌐 **Song ngữ VN/EN** — trả lời theo ngôn ngữ của câu hỏi
-- 🧠 **Lưu phiên trên Redis** — bền vững, cô lập giữa các phiên, tự dọn theo TTL
-- 🔐 **Cấu hình từ env + validation fail-fast** — không hardcode secret
+- 🔐 **Xác thực JWT + Google OAuth** — bảo mật endpoint, định danh người dùng
+- 🧠 **Lưu trữ kép (MongoDB + Redis)** — lưu lịch sử dài hạn (MongoDB) + cache phiên (Redis)
+- ⚙️ **Cấu hình từ env + validation fail-fast** — không hardcode secret
 
 ## 🏗️ Kiến trúc
 
 ```
                     ┌──────────────────────── backend/ (NestJS) ────────────────────────┐
   Client ──SSE──►   │  conversation (@Sse)  ──►  AgentRuntime (port)                     │
-  (web/CLI/...)     │        │                        │                                  │
+  (web/CLI/...)     │  auth (JWT/OAuth)               │                                  │
                     │        ▼                        ▼                                  │
                     │   session (Redis)         pi-agent-core                            │
-                    │   hash+list+TTL           (in-process, ESM, push→pull)             │
+                    │   MongoDB (history)       (in-process, ESM, push→pull)             │
                     │        │                        │                                  │
                     │        ▼                        ▼ tool: burgerprints_search        │
-                    │     Redis                 BurgerPrints API v2.0 (+ cache Redis)     │
+                    │     Redis + MongoDB       BurgerPrints API v2.0 (+ cache Redis)    │
                     └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,7 +43,7 @@ fulfillment (sản phẩm × xưởng × SKU × giá × ship) qua **ngôn ngữ 
 ```bash
 cd backend
 cp .env.example .env
-# Điền BURGERPRINTS_API_KEY + (ANTHROPIC_API_KEY hoặc OPENAI_API_KEY)
+# Điền BURGERPRINTS_API_KEY + (ANTHROPIC_API_KEY hoặc OPENAI_API_KEY) + JWT_SECRET
 docker compose up --build
 ```
 
@@ -58,19 +59,21 @@ curl -N "http://localhost:3000/conversations/$SID/stream?message=Tim%20T-shirt%2
 
 ## 📡 API
 
-| Method | Path | Mô tả |
-|--------|------|------|
-| POST | `/conversations` | Tạo phiên → `{ sessionId }` |
-| GET | `/conversations/:id/stream?message=...` | Hội thoại **SSE** (`token`/`tool`/`error`/`done`) |
-| POST | `/conversations/:id/messages` | Fallback non-stream → `{ reply }` |
-| GET | `/health` | Readiness (ping Redis) |
+| Method | Path | Mô tả | Yêu cầu |
+|--------|------|------|---------|
+| POST | `/auth/login` | Đăng nhập tài khoản Local | Public |
+| POST | `/conversations` | Tạo phiên → `{ sessionId }` | JWT |
+| GET | `/conversations/:id/stream?message=...` | Hội thoại **SSE** (`token`/`tool`/`error`/`done`) | JWT |
+| POST | `/conversations/:id/messages` | Fallback non-stream → `{ reply }` | JWT |
+| GET | `/health` | Readiness (ping Redis + MongoDB) | Public |
 
 Contract đầy đủ: [`specs/001-nestjs-backend-foundation/contracts/`](specs/001-nestjs-backend-foundation/contracts/).
 
 ## 🧰 Tech stack
 
 **NestJS 10** (TypeScript, Node 20) · **SSE** streaming · **@earendil-works/pi-agent-core** (agent runtime)
-· **Redis 7** (session + cache) · **joi** (env validation) · **Docker Compose** · **Jest** (10 unit + 5 e2e)
+· **Redis 7** (session + cache) · **MongoDB 7** (users, auth, history) · **joi** (env validation)
+· **Passport (JWT + OAuth2)** · **Docker Compose** · **Jest** (10 unit + 5 e2e)
 
 ## 📂 Cấu trúc
 
@@ -91,9 +94,10 @@ Mọi credential nạp từ env; **không hardcode**. `.env` đã gitignore — 
 ## 🗺️ Roadmap
 
 - [x] Nền tảng backend (foundation): khung hội thoại SSE, port `AgentRuntime`, Redis session, BurgerPrints client
+- [x] Xác thực (Auth): JWT, Google OAuth, MongoDB để lưu user và dữ liệu hội thoại (US4, US2)
 - [ ] Hoàn thiện luồng agent tra cứu + so sánh catalog end-to-end
 - [ ] System prompt tư vấn fulfillment chi tiết (so sánh giá/xưởng/margin)
 - [ ] Tạo đơn hàng tự động (`POST /v2/order` + `sandbox`) — bonus đề bài
 - [ ] Giao diện cho seller (web/CLI/Telegram)
 
-> Tiến độ hiện tại: **nền tảng backend** (~30%). Các hạng mục còn lại đang triển khai.
+> Tiến độ hiện tại: **nền tảng backend + auth + storage** (~50%). Các hạng mục còn lại đang triển khai.

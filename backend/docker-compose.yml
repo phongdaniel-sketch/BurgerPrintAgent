@@ -10,6 +10,20 @@ services:
       timeout: 3s
       retries: 5
 
+  mongo:
+    image: mongo:7-jammy
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   app:
     build:
       context: .
@@ -18,12 +32,15 @@ services:
     env_file:
       - .env
     environment:
-      # Ghi đè REDIS_URL để trỏ tới service redis trong mạng compose
+      # Ghi đè REDIS_URL và MONGODB_URI để trỏ tới services trong mạng compose
       REDIS_URL: redis://redis:6379
+      MONGODB_URI: mongodb://mongo:27017/burgerprints
     ports:
       - '${PORT:-3000}:3000'
     depends_on:
       redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     healthcheck:
       test:
@@ -32,3 +49,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+volumes:
+  mongo-data:

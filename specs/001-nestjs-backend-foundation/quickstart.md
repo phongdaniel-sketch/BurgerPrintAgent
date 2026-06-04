@@ -1,71 +1,102 @@
-# Quickstart: NestJS Backend Foundation (cài đặt ≤ 10 phút)
+# Quickstart: Auth Module + MongoDB
 
-**Feature**: 001-nestjs-backend-foundation
+## Prerequisites
 
-Mục tiêu: từ máy sạch tới một endpoint hội thoại hoạt động trong ≤ 10 phút (SC-001).
+- Node.js ≥ 18
+- Docker & Docker Compose (cho Redis + MongoDB)
+- Google Cloud Console project (cho OAuth — optional)
 
-## Yêu cầu nền tảng
-
-- Docker + Docker Compose (khuyến nghị — không cần cài Node/Redis thủ công), **hoặc**
-- Node.js 20 LTS + một Redis 7 đang chạy (cách thủ công).
-
-## Cách 1 — Docker Compose (khuyến nghị)
+## 1. Start Infrastructure
 
 ```bash
 cd backend
+docker compose up -d
+```
+
+> Bây giờ docker-compose sẽ khởi chạy cả **Redis** (port 6379) và **MongoDB** (port 27017).
+
+## 2. Configure Environment
+
+```bash
 cp .env.example .env
-# Mở .env, điền: BURGERPRINTS_API_KEY, LLM_PROVIDER (anthropic|openai) + key tương ứng
-docker compose up --build
 ```
 
-Compose khởi chạy 2 service: `app` (NestJS) + `redis`. Khi log báo `Nest application successfully started`:
+Bổ sung/cập nhật các biến mới trong `.env`:
 
-```bash
-# 1) Health
-curl http://localhost:3000/health
+```env
+# ─── MongoDB ───────────────────────────────────────────
+MONGODB_URI=mongodb://localhost:27017/burgerprints-agent
 
-# 2) Tạo phiên
-SID=$(curl -s -XPOST http://localhost:3000/conversations | jq -r .sessionId)
+# ─── JWT ───────────────────────────────────────────────
+JWT_SECRET=your-super-secret-key-change-in-production
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
 
-# 3) Hỏi (non-stream fallback, dễ xem kết quả)
-curl -s -XPOST http://localhost:3000/conversations/$SID/messages \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"Tôi muốn bán T-shirt cho thị trường Mỹ, giá vốn dưới $8, gợi ý xưởng/SKU?"}' | jq
-
-# 4) Hỏi streaming (SSE)
-curl -N "http://localhost:3000/conversations/$SID/stream?message=So%20sanh%20gia%20Hoodie%20giua%20cac%20xuong"
+# ─── OAuth (optional — bỏ qua nếu chưa cần Google login) ─
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
 ```
 
-## Cách 2 — Chạy local (Node + Redis sẵn có)
+## 3. Install & Run
 
 ```bash
-cd backend
-cp .env.example .env        # điền secret + REDIS_URL=redis://localhost:6379
 npm install
 npm run start:dev
 ```
 
-## Biến môi trường (.env)
+## 4. Test Auth Flow
 
-| Biến | Bắt buộc | Mô tả |
-|------|----------|------|
-| `PORT` | không (default 3000) | Cổng HTTP |
-| `REDIS_URL` | có | vd `redis://redis:6379` (compose) hoặc `redis://localhost:6379` |
-| `SESSION_TTL_SECONDS` | không (default 3600) | TTL phiên |
-| `MAX_CONTEXT_TURNS` | không (default 12) | Số lượt nạp làm ngữ cảnh |
-| `LLM_PROVIDER` | có | `anthropic` hoặc `openai` |
-| `ANTHROPIC_API_KEY` | conditional | bắt buộc nếu provider=anthropic |
-| `OPENAI_API_KEY` | conditional | bắt buộc nếu provider=openai |
-| `BURGERPRINTS_API_BASE_URL` | có | base URL API v2.0 |
-| `BURGERPRINTS_API_KEY` | có | key do BTC cấp |
-| `CATALOG_CACHE_TTL_SECONDS` | không (default 300) | TTL cache catalog |
+### Register
+```bash
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"Test1234","displayName":"Test User"}'
+```
 
-> KHÔNG commit `.env`. `.env.example` chỉ chứa placeholder rỗng (FR-008, SC-004).
+### Login
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"Test1234"}'
+```
 
-## Kiểm chứng nhanh (acceptance)
+### Use Access Token
+```bash
+# Lấy accessToken từ response login
+export TOKEN="eyJhbG..."
 
-- [ ] `GET /health` trả `status: ok` (Redis up) — FR-010
-- [ ] Thiếu một biến bắt buộc → app **không** khởi động và log nêu đích danh biến — SC-006
-- [ ] SSE stream phát các `event: token` dần rồi `event: done` — FR-002, SC-002
-- [ ] Hỏi nối tiếp trong cùng `sessionId` giữ được ngữ cảnh — FR-003, SC-003
-- [ ] Hai phiên khác nhau không trộn lẫn lịch sử — FR-005, SC-005
+# Tạo conversation (giờ cần auth)
+curl -X POST http://localhost:3000/conversations \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"language":"vi"}'
+
+# Lấy profile
+curl http://localhost:3000/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Refresh Token
+```bash
+curl -X POST http://localhost:3000/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"uuid-from-login-response"}'
+```
+
+## 5. Google OAuth (Optional)
+
+1. Tạo project trong [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable Google+ API
+3. Tạo OAuth 2.0 Client ID (Web application)
+4. Set Authorized redirect URI: `http://localhost:3000/auth/google/callback`
+5. Copy Client ID + Secret vào `.env`
+6. Mở browser: `http://localhost:3000/auth/google`
+
+## Health Check
+
+```bash
+curl http://localhost:3000/health
+```
+
+> Response sẽ bao gồm trạng thái MongoDB connection.

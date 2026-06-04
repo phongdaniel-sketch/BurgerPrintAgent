@@ -3,6 +3,7 @@ import { AGENT_RUNTIME, AgentRuntime } from '../agent/agent-runtime.port';
 import { AgentChunk } from '../agent/agent.types';
 import { SessionService } from '../session/session.service';
 import { ConversationSession, Language } from '../session/session.types';
+import { ConversationRepository } from './conversation.repository';
 
 @Injectable()
 export class ConversationService {
@@ -11,10 +12,12 @@ export class ConversationService {
   constructor(
     private readonly sessions: SessionService,
     @Inject(AGENT_RUNTIME) private readonly agent: AgentRuntime,
+    private readonly conversationRepo: ConversationRepository,
   ) {}
 
-  async createConversation(language: Language | null): Promise<ConversationSession> {
-    return this.sessions.createSession(language);
+  async createConversation(userId: string, language: Language | null): Promise<ConversationSession> {
+    const conversation = await this.conversationRepo.createConversation(userId);
+    return this.sessions.createSession(conversation._id.toString(), language);
   }
 
   /**

@@ -42,8 +42,10 @@ export class RedisService {
     return this.client.hgetall(key);
   }
 
-  async rpush(key: string, value: string): Promise<void> {
-    await this.client.rpush(key, value);
+  async rpush(key: string, ...values: string[]): Promise<void> {
+    if (values.length > 0) {
+      await this.client.rpush(key, ...values);
+    }
   }
 
   async lrange(key: string, start: number, stop: number): Promise<string[]> {

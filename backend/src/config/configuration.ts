@@ -12,6 +12,21 @@ export interface SessionConfig {
   ttlSeconds: number;
   maxContextTurns: number;
 }
+export interface MongoConfig {
+  uri: string;
+}
+export interface JwtConfig {
+  secret: string;
+  accessExpiresIn: string;
+  refreshExpiresIn: string;
+}
+export interface OAuthConfig {
+  google: {
+    clientID?: string;
+    clientSecret?: string;
+    callbackURL?: string;
+  };
+}
 export interface LlmConfig {
   provider: 'anthropic' | 'openai';
   model: string;
@@ -30,6 +45,9 @@ export interface RootConfig {
   app: AppConfig;
   redis: RedisConfig;
   session: SessionConfig;
+  mongo: MongoConfig;
+  jwt: JwtConfig;
+  oauth: OAuthConfig;
   llm: LlmConfig;
   burgerprints: BurgerPrintsConfig;
 }
@@ -44,6 +62,21 @@ export default (): RootConfig => ({
   session: {
     ttlSeconds: parseInt(process.env.SESSION_TTL_SECONDS ?? '3600', 10),
     maxContextTurns: parseInt(process.env.MAX_CONTEXT_TURNS ?? '12', 10),
+  },
+  mongo: {
+    uri: process.env.MONGODB_URI as string,
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET as string,
+    accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
+  },
+  oauth: {
+    google: {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_CALLBACK_URL,
+    },
   },
   llm: {
     provider: (process.env.LLM_PROVIDER ?? 'anthropic') as 'anthropic' | 'openai',

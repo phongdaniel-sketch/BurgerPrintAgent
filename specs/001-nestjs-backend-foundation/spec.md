@@ -6,6 +6,12 @@
 
 **Status**: Draft
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: Khi seller đăng nhập email/password sai nhiều lần liên tiếp, hệ thống nên xử lý thế nào để chống brute-force? → A: Account lockout tạm — khóa 15 phút sau 5 lần sai liên tiếp (per-account).
+
 **Input**: User description: "Thiết lập nền tảng backend cho AI chatbot agent của BurgerPrints (BP1 - POD Catalog Assistant). Backend cung cấp API hội thoại nhiều lượt giúp sellers POD tìm/so sánh/chọn sản phẩm fulfillment qua ngôn ngữ tự nhiên (VN/EN), dùng dữ liệu từ BurgerPrints API v2.0. Yêu cầu kỹ thuật: NestJS, streaming qua SSE, runtime là pi-agent-core, Redis cho session/conversation state và caching, quản lý credentials an toàn, cài đặt ≤ 10 phút."
 
 ## User Scenarios & Testing *(mandatory)*
@@ -67,6 +73,7 @@ Người vận hành (giám khảo / developer mới) có thể clone source, cu
 - Điều gì xảy ra khi store trạng thái phiên (Redis) tạm thời không truy cập được? → Hệ thống báo lỗi rõ ràng và không làm hỏng dữ liệu phiên hiện có.
 - Điều gì xảy ra khi `session_id` không tồn tại hoặc đã hết hạn? → Backend trả lỗi rõ ràng hoặc tạo phiên mới theo quy ước đã định.
 - Điều gì xảy ra với câu hỏi rất dài hoặc vượt giới hạn ngữ cảnh của agent? → Hệ thống xử lý có kiểm soát (cắt/tóm tắt/từ chối) thay vì lỗi không kiểm soát.
+- Điều gì xảy ra khi seller nhập sai mật khẩu 5 lần liên tiếp? → Tài khoản bị khóa tạm 15 phút (per-account lockout); sau 15 phút tự động mở khóa. Trả lỗi 429 với thông báo thời gian còn lại.
 
 ## Requirements *(mandatory)*
 
@@ -87,6 +94,7 @@ Người vận hành (giám khảo / developer mới) có thể clone source, cu
 - **FR-013**: Hệ thống MUST giải phóng tài nguyên của một lượt streaming khi client ngắt kết nối hoặc khi lượt trả lời hoàn tất.
 - **FR-014**: Hệ thống MUST áp dụng thời hạn lưu giữ (TTL) cho trạng thái phiên và dọn dẹp tự động các phiên hết hạn.
 - **FR-015**: Hệ thống MUST đi kèm hướng dẫn cài đặt cho phép một người vận hành mới dựng và chạy backend trong ≤ 10 phút.
+- **FR-016**: Hệ thống MUST khóa tạm tài khoản (account lockout) trong 15 phút sau 5 lần đăng nhập sai liên tiếp trên cùng tài khoản, trả mã lỗi rõ ràng kèm thời gian còn lại để mở khóa.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -114,5 +122,5 @@ Người vận hành (giám khảo / developer mới) có thể clone source, cu
 - Credentials của BurgerPrints API v2.0 do ban tổ chức cung cấp và sẽ được cấp cho môi trường chạy qua biến môi trường.
 - Mô hình LLM cụ thể dùng bên trong agent runtime được chọn ở giai đoạn lập kế hoạch/triển khai; spec này không ràng buộc nhà cung cấp LLM.
 - Redis (hoặc dịch vụ tương thích) là kho lưu trạng thái phiên và cache; được chạy như một phụ thuộc đi kèm khi cài đặt.
-- Xác thực/định danh người dùng cuối (đăng nhập seller) không bắt buộc cho feature nền tảng này; phiên được định danh qua `session_id` do client cung cấp/nhận về.
+- Xác thực/định danh người dùng cuối (đăng nhập seller) **nằm trong phạm vi** feature này: hỗ trợ đăng ký/đăng nhập bằng email+password và Google OAuth, phiên hội thoại gắn với userId sau khi xác thực.
 - Endpoint tạo đơn hàng (bonus của đề bài) nằm ngoài phạm vi feature này.

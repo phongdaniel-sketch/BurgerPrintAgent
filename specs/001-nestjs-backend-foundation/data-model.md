@@ -1,84 +1,164 @@
-# Phase 1 Data Model: NestJS Backend Foundation
+# Data Model: Auth Module + MongoDB Persistence
 
-**Feature**: 001-nestjs-backend-foundation | **Date**: 2026-06-04
+**Feature**: 001-nestjs-backend-foundation (bổ sung auth module)
+**Date**: 2026-06-04
 
-Mô hình dữ liệu lưu trên Redis (không RDBMS). Mọi key có namespace `session:` và áp TTL.
+---
 
-## Entity: ConversationSession
+## Entity: User
 
-Đại diện một chuỗi hội thoại liên tục với một seller.
+Tài khoản người dùng (seller). Hỗ trợ đăng ký bằng email/password hoặc OAuth (Google).
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | string (uuid v4) | Định danh phiên; sinh khi `POST /conversations` |
-| `language` | `'vi' \| 'en' \| null` | Ngôn ngữ phát hiện ở lượt đầu; null tới khi xác định |
-| `createdAt` | ISO datetime string | Thời điểm tạo |
-| `updatedAt` | ISO datetime string | Cập nhật mỗi lượt |
-| `ttlSeconds` | number | TTL hiện hành (từ `SESSION_TTL_SECONDS`) |
+| Field | Type | Constraints | Description |
+|---|---|---|---|
+| `_id` | ObjectId | PK, auto | MongoDB primary key |
+| `email` | string | unique, required, lowercase, trim | Email đăng nhập / liên kết OAuth |
+| `passwordHash` | string | optional | bcrypt hash; null nếu OAuth-only user |
+| `displayName` | string | optional | Tên hiển thị |
+| `avatar` | string | optional | URL ảnh đại diện (từ OAuth hoặc upload) |
+| `authProvider` | enum | required, default `'local'` | `'local'` \| `'google'` — provider đăng ký chính |
+| `providerId` | string | optional, sparse unique | ID từ OAuth provider (googleId); null nếu local |
+| `role` | enum | required, default `'user'` | `'user'` \| `'admin'` — phân quyền cơ bản |
+| `isActive` | boolean | required, default `true` | Cho phép disable tài khoản |
+| `lastLoginAt` | Date | optional | Thời điểm login gần nhất |
+| `createdAt` | Date | auto (timestamps) | Thời điểm tạo |
+| `updatedAt` | Date | auto (timestamps) | Thời điểm cập nhật |
 
-**Redis representation**:
-- `session:{id}` → Hash: `{ language, createdAt, updatedAt }`
-- `EXPIRE session:{id} {ttlSeconds}`, refresh mỗi lượt (FR-014).
+**Indexes**:
+- `email`: unique
+- `{ authProvider, providerId }`: unique sparse (cho OAuth lookup)
 
 **Validation rules**:
-- `id` phải tồn tại (key có) trước khi stream; nếu không → 404 (FR: edge case session không tồn tại/hết hạn).
-- `language` đặt một lần ở lượt đầu, các lượt sau giữ nguyên (FR-007).
+- Email phải hợp lệ (regex hoặc class-validator `@IsEmail`)
+- Password (khi local): tối thiểu 8 ký tự, ít nhất 1 chữ hoa + 1 số
+- `authProvider` + `providerId` phải đi cùng (nếu provider ≠ local thì providerId required)
 
-## Entity: ConversationTurn
+**State transitions**:
+- `isActive: true → false`: Admin disable → user không thể login
+- `authProvider: local`: Có thể link thêm OAuth provider sau (chưa triển khai ở phase này)
 
-Một lượt: câu hỏi của seller hoặc câu trả lời của agent.
+---
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `role` | `'user' \| 'assistant'` | Vai trò |
-| `content` | string | Nội dung văn bản |
-| `ts` | ISO datetime string | Thời điểm |
+## Entity: RefreshToken
 
-**Redis representation**:
-- `session:{id}:turns` → List of JSON strings (RPUSH, đọc theo thứ tự LRANGE).
-- Cùng TTL với `session:{id}`.
+Token làm mới JWT access token. Lưu MongoDB để hỗ trợ revocation.
 
-**Relationships**: nhiều `ConversationTurn` thuộc một `ConversationSession`. Lịch sử turns (rút gọn theo `MAX_CONTEXT_TURNS`) được nạp làm ngữ cảnh cho agent ở lượt kế (FR-003).
+| Field | Type | Constraints | Description |
+|---|---|---|---|
+| `_id` | ObjectId | PK, auto | MongoDB primary key |
+| `token` | string | unique, required, indexed | UUID v4 — giá trị refresh token |
+| `userId` | ObjectId | required, ref → User | Chủ sở hữu token |
+| `expiresAt` | Date | required | Thời điểm hết hạn (7 ngày) |
+| `revokedAt` | Date | optional | Nếu có → token đã bị revoke |
+| `userAgent` | string | optional | User-Agent lúc tạo token (audit) |
+| `ipAddress` | string | optional | IP lúc tạo token (audit) |
+| `createdAt` | Date | auto (timestamps) | Thời điểm tạo |
 
-## Entity: AgentChunk (transient — không lưu Redis)
+**Indexes**:
+- `token`: unique
+- `userId`: regular (lookup all tokens of user)
+- `expiresAt`: TTL index (MongoDB auto-delete expired documents)
 
-Đơn vị phát ra từ `AgentRuntime.run()` để map sang SSE event.
+**Validation rules**:
+- `expiresAt` phải > now lúc tạo
+- Mỗi user tối đa 5 active refresh tokens (FIFO xóa cũ nhất)
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `type` | `'token' \| 'tool' \| 'error' \| 'done'` | Loại chunk → SSE `event` |
-| `data` | string \| object | `token`: text phần; `tool`: mô tả gọi công cụ; `error`: thông báo lỗi; `done`: tổng kết |
+---
 
-**State flow của một lượt streaming**:
+## Entity: Conversation (MongoDB — durable persistence)
+
+Lưu trữ dài hạn conversation history gắn với user. Bổ sung cho Redis session (ngắn hạn).
+
+| Field | Type | Constraints | Description |
+|---|---|---|---|
+| `_id` | ObjectId | PK, auto | MongoDB primary key |
+| `sessionId` | string | required, unique, indexed | UUID session — mapping với Redis session |
+| `userId` | ObjectId | required, ref → User, indexed | Chủ phiên hội thoại |
+| `language` | enum | optional | `'vi'` \| `'en'` |
+| `title` | string | optional | Tự động tạo từ message đầu tiên hoặc user đặt |
+| `status` | enum | required, default `'active'` | `'active'` \| `'archived'` |
+| `createdAt` | Date | auto (timestamps) | Thời điểm tạo |
+| `updatedAt` | Date | auto (timestamps) | Cập nhật khi có turn mới |
+
+**Indexes**:
+- `sessionId`: unique
+- `userId`: regular (list conversations of user)
+- `{ userId, updatedAt }`: compound descending (recent conversations first)
+
+---
+
+## Entity: Message (MongoDB — durable persistence)
+
+Lượt hội thoại lưu dài hạn, embed trong hoặc ref từ Conversation.
+
+| Field | Type | Constraints | Description |
+|---|---|---|---|
+| `_id` | ObjectId | PK, auto | MongoDB primary key |
+| `conversationId` | ObjectId | required, ref → Conversation, indexed | Phiên chứa message |
+| `role` | enum | required | `'user'` \| `'assistant'` |
+| `content` | string | required | Nội dung message |
+| `createdAt` | Date | auto (timestamps) | Thời điểm gửi |
+
+**Indexes**:
+- `conversationId`: regular (load messages of conversation)
+- `{ conversationId, createdAt }`: compound ascending (chronological order)
+
+---
+
+## Relationships
+
+```mermaid
+erDiagram
+    User ||--o{ RefreshToken : "has"
+    User ||--o{ Conversation : "owns"
+    Conversation ||--o{ Message : "contains"
+
+    User {
+        ObjectId _id PK
+        string email UK
+        string passwordHash
+        string displayName
+        string authProvider
+        string providerId
+        string role
+        boolean isActive
+    }
+
+    RefreshToken {
+        ObjectId _id PK
+        string token UK
+        ObjectId userId FK
+        Date expiresAt
+        Date revokedAt
+    }
+
+    Conversation {
+        ObjectId _id PK
+        string sessionId UK
+        ObjectId userId FK
+        string language
+        string status
+    }
+
+    Message {
+        ObjectId _id PK
+        ObjectId conversationId FK
+        string role
+        string content
+    }
 ```
-(0..n) token  → [optional tool ...] → token ... → done
-                         │
-                         └─(lỗi bất kỳ lúc nào)→ error → (kết thúc)
-```
-- `done` hoặc `error` là chunk cuối; sau đó observable complete → SSE đóng sạch (FR-011, FR-013).
 
-## Entity: AppConfig (vận hành — nạp từ env, không lưu Redis)
+---
 
-Tập cấu hình typed (namespaced).
+## Redis ↔ MongoDB Sync Strategy
 
-| Namespace | Keys | Required |
-|-----------|------|----------|
-| `app` | `PORT` | có (default 3000) |
-| `redis` | `REDIS_URL` | có |
-| `session` | `SESSION_TTL_SECONDS`, `MAX_CONTEXT_TURNS` | có (có default) |
-| `llm` | `LLM_PROVIDER`, `ANTHROPIC_API_KEY` \| `OPENAI_API_KEY` | provider bắt buộc; key conditional theo provider |
-| `burgerprints` | `BURGERPRINTS_API_BASE_URL`, `BURGERPRINTS_API_KEY`, `CATALOG_CACHE_TTL_SECONDS` | có |
+| Store | Data | TTL | Purpose |
+|---|---|---|---|
+| **Redis** | Session metadata + recent turns | 1h (configurable) | Real-time agent context, fast read |
+| **MongoDB** | User, Conversation, Message, RefreshToken | Permanent (hoặc TTL index) | Durable storage, history, auth |
 
-**Validation**: joi schema, fail-fast khi bootstrap nếu thiếu/không hợp lệ (FR-009, SC-006). Không field nào có default chứa secret.
-
-## Entity: CatalogCacheItem (cache — Redis, TTL ngắn)
-
-Kết quả tra cứu BurgerPrints API v2.0 được cache.
-
-| Field | Type | Notes |
-|-------|------|-------|
-| key | `catalog:{hash(query)}` | Khóa cache theo tham số truy vấn |
-| value | JSON | Payload trả về từ API v2.0 |
-| ttl | number | `CATALOG_CACHE_TTL_SECONDS` |
-
-**Rationale**: giảm gọi lặp API trong một phiên (R7). Cache miss → gọi API thật → set cache.
+**Sync flow**:
+1. Khi tạo conversation → ghi cả Redis (session) + MongoDB (Conversation doc).
+2. Khi append turn → ghi Redis (real-time) + MongoDB (Message doc) đồng thời.
+3. Khi Redis session expire → MongoDB Conversation vẫn truy vấn được (history).
+4. Khi user load conversation history → đọc từ MongoDB (bypass Redis TTL).

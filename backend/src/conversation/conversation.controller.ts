@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Sse,
+  Req,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentChunk } from '../agent/agent.types';
@@ -28,8 +29,8 @@ export class ConversationController {
 
   /** Tạo phiên mới. */
   @Post()
-  async create(@Body() dto: CreateConversationDto): Promise<{ sessionId: string }> {
-    const session = await this.conversation.createConversation(dto.language ?? null);
+  async create(@Body() dto: CreateConversationDto, @Req() req: any): Promise<{ sessionId: string }> {
+    const session = await this.conversation.createConversation(req.user._id, dto.language ?? null);
     return { sessionId: session.id };
   }
 

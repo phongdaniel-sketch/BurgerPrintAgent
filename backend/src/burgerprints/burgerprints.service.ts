@@ -32,7 +32,7 @@ export class BurgerPrintsService {
 
   /** Tra cứu sản phẩm/xưởng/SKU. Có cache theo tham số truy vấn. */
   async searchProducts(params: Record<string, unknown>): Promise<unknown> {
-    return this.getCached('/products', params);
+    return this.getCached('/product', params);
   }
 
   /** GET có cache. */

@@ -8,6 +8,15 @@ export const envValidationSchema = Joi.object({
   PORT: Joi.number().port().default(3000),
 
   REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
+  MONGODB_URI: Joi.string().uri({ scheme: ['mongodb', 'mongodb+srv'] }).required(),
+
+  JWT_SECRET: Joi.string().required(),
+  JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+  JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+
+  GOOGLE_CLIENT_ID: Joi.string().optional().allow(''),
+  GOOGLE_CLIENT_SECRET: Joi.string().optional().allow(''),
+  GOOGLE_CALLBACK_URL: Joi.string().uri().optional().allow(''),
 
   SESSION_TTL_SECONDS: Joi.number().integer().positive().default(3600),
   MAX_CONTEXT_TURNS: Joi.number().integer().positive().default(12),
