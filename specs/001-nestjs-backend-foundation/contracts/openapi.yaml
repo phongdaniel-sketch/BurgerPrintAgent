@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: BurgerPrints Chatbot Agent — Backend Foundation API
+  version: 0.1.0
+  description: >
+    Conversation API cho AI chatbot agent của BurgerPrints. Streaming qua SSE,
+    runtime pi-agent-core (in-process), state trên Redis.
+servers:
+  - url: http://localhost:3000
+paths:
+  /conversations:
+    post:
+      summary: Tạo phiên hội thoại mới
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                language:
+                  type: string
+                  enum: [vi, en]
+      responses:
+        '201':
+          description: Phiên đã tạo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+        '503':
+          description: Redis không khả dụng
+  /conversations/{sessionId}/stream:
+    get:
+      summary: Hội thoại streaming qua SSE
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: message
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Luồng SSE (text/event-stream). Events: token | tool | error | done.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          description: sessionId không tồn tại hoặc đã hết hạn
+  /conversations/{sessionId}/messages:
+    post:
+      summary: Fallback non-stream (gộp câu trả lời)
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+      responses:
+        '200':
+          description: Câu trả lời đầy đủ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId: { type: string, format: uuid }
+                  reply: { type: string }
+                  finishReason: { type: string }
+        '404': { description: session không tồn tại }
+        '502': { description: agent/datasource lỗi }
+  /health:
+    get:
+      summary: Readiness check
+      responses:
+        '200': { description: ok }
+        '503': { description: một phụ thuộc down }
