@@ -24,9 +24,7 @@ export class InMemoryRedis implements Partial<RedisService> {
     this.ttls.set(key, ttl);
   }
   async exists(key: string): Promise<boolean> {
-    return (
-      this.hashes.has(key) || this.strings.has(key) || this.lists.has(key)
-    );
+    return this.hashes.has(key) || this.strings.has(key) || this.lists.has(key);
   }
   async hset(key: string, data: Record<string, string>): Promise<void> {
     this.hashes.set(key, { ...(this.hashes.get(key) ?? {}), ...data });

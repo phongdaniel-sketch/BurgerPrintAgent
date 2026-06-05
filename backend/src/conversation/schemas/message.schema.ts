@@ -6,7 +6,11 @@ export type MessageDocument = Message & Document;
 
 @Schema({ timestamps: true })
 export class Message {
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Conversation', required: true })
+  @Prop({
+    type: MongooseSchema.Types.ObjectId,
+    ref: 'Conversation',
+    required: true,
+  })
   conversationId: Conversation;
 
   @Prop({ required: true, enum: ['user', 'assistant'] })

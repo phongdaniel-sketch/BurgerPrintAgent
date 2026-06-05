@@ -5,11 +5,13 @@ import { User, UserDocument } from './schemas/user.schema';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-  ) {}
+  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
 
-  async createLocal(email: string, passwordHash: string, displayName?: string): Promise<UserDocument> {
+  async createLocal(
+    email: string,
+    passwordHash: string,
+    displayName?: string,
+  ): Promise<UserDocument> {
     try {
       const user = new this.userModel({
         email,
@@ -34,9 +36,17 @@ export class UsersService {
     return this.userModel.findById(id).exec();
   }
 
-  async findOrCreateOAuth(provider: string, providerId: string, email: string, displayName?: string, avatar?: string): Promise<UserDocument> {
+  async findOrCreateOAuth(
+    provider: string,
+    providerId: string,
+    email: string,
+    displayName?: string,
+    avatar?: string,
+  ): Promise<UserDocument> {
     // 1. Tìm theo providerId
-    let user = await this.userModel.findOne({ authProvider: provider, providerId }).exec();
+    let user = await this.userModel
+      .findOne({ authProvider: provider, providerId })
+      .exec();
     if (user) return user;
 
     // 2. Nếu không có, tìm theo email để link (Option B from clarification)
@@ -60,7 +70,10 @@ export class UsersService {
     return user.save();
   }
 
-  async incrementFailedAttempts(userId: string, lockoutDurationMs: number): Promise<UserDocument | null> {
+  async incrementFailedAttempts(
+    userId: string,
+    lockoutDurationMs: number,
+  ): Promise<UserDocument | null> {
     const user = await this.userModel.findById(userId).exec();
     if (!user) return null;
 
@@ -72,10 +85,12 @@ export class UsersService {
   }
 
   async resetFailedAttempts(userId: string): Promise<void> {
-    await this.userModel.updateOne(
-      { _id: userId },
-      { $set: { failedLoginAttempts: 0 }, $unset: { lockUntil: 1 } }
-    ).exec();
+    await this.userModel
+      .updateOne(
+        { _id: userId },
+        { $set: { failedLoginAttempts: 0 }, $unset: { lockUntil: 1 } },
+      )
+      .exec();
   }
 
   isLocked(user: UserDocument): boolean {
@@ -86,6 +101,8 @@ export class UsersService {
   }
 
   async updateLastLogin(userId: string): Promise<void> {
-    await this.userModel.updateOne({ _id: userId }, { $set: { lastLoginAt: new Date() } }).exec();
+    await this.userModel
+      .updateOne({ _id: userId }, { $set: { lastLoginAt: new Date() } })
+      .exec();
   }
 }

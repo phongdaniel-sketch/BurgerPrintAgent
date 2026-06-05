@@ -1,7 +1,9 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { StringField } from '../../common/decorators/field.decorators';
 
 export class RefreshTokenDto {
-  @IsString()
-  @IsNotEmpty()
+  @StringField({
+    description: 'Valid refresh token',
+    example: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+  })
   refreshToken: string;
 }

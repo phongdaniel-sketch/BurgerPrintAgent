@@ -22,6 +22,7 @@
 | US2 | Lưu và khôi phục trạng thái phiên hội thoại | P2 | Existing (Redis) + NEW (MongoDB durable) |
 | US3 | Cài đặt nhanh và cấu hình an toàn | P2 | Existing + MODIFY (MongoDB, JWT, OAuth env) |
 | US4 | Xác thực seller (email/password + Google OAuth) | P1 | NEW — auth module |
+| US5 | Bổ sung Swagger API Documentation | P2 | NEW — swagger setup & decorators |
 
 ---
 
@@ -119,15 +120,30 @@
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 6: User Story 5 — Swagger API Documentation (Priority: P2)
+
+**Goal**: Document REST APIs sử dụng custom Swagger decorators để cho phép testing tương tác qua Swagger UI.
+
+**Independent Test**: Khởi chạy backend, truy cập `http://localhost:3000/api/docs`, xem danh sách API và test endpoint auth.
+
+### Implementation for User Story 5
+
+- [x] T038 [US5] Update `backend/src/main.ts` to bootstrap Swagger UI at `/api/docs`
+- [x] T039 [P] [US5] Update Auth DTOs (`backend/src/auth/dto/register.dto.ts`, `login.dto.ts`, `refresh-token.dto.ts`) to use `@EmailField()`, `@PasswordField()`, `@StringField()` from `@common/decorators/field.decorators`
+- [x] T040 [P] [US5] Update `backend/src/auth/auth.controller.ts` to use `@ApiPublic()` and `@ApiAuth()` decorators from `@common/decorators/http.decorators`
+- [x] T041 [P] [US5] Update `backend/src/conversation/conversation.controller.ts` and related DTOs to use `@ApiAuth()`, `@StringField()` decorators
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [x] T038 [P] Update `backend/Dockerfile` to ensure MongoDB client libs are available if needed
-- [x] T039 [P] Add request logging middleware for auth endpoints (login attempts, lockouts) in `backend/src/common/`
-- [x] T040 Validate all env vars present and backend starts cleanly with `docker compose up`
-- [x] T041 Run quickstart.md validation — full flow: register → login → create conversation → stream message → refresh token → logout
-- [x] T042 Security review: verify no secrets in source code, .env in .gitignore, passwords hashed
+- [x] T042 [P] Update `backend/Dockerfile` to ensure MongoDB client libs are available if needed
+- [x] T043 [P] Add request logging middleware for auth endpoints (login attempts, lockouts) in `backend/src/common/`
+- [x] T044 Validate all env vars present and backend starts cleanly with `docker compose up`
+- [x] T045 Run quickstart.md validation — full flow: register → login → create conversation → stream message → refresh token → logout
+- [x] T046 Security review: verify no secrets in source code, .env in .gitignore, passwords hashed
 
 ---
 
@@ -140,7 +156,8 @@
 - **US4 Auth (Phase 3)**: Depends on Foundational — can start after Phase 2
 - **US2 MongoDB Persistence (Phase 4)**: Depends on Foundational + US4 (needs userId from auth)
 - **US3 Config/Setup (Phase 5)**: Depends on US4 + US2 (documents final state)
-- **Polish (Phase 6)**: Depends on all user stories being complete
+- **US5 Swagger (Phase 6)**: Depends on Foundational + US4 + US2 (needs endpoints and DTOs to document)
+- **Polish (Phase 7)**: Depends on all user stories being complete
 
 ### User Story Dependencies
 
@@ -148,6 +165,7 @@
 - **US1 (Streaming)**: Already implemented — existing code, no changes needed
 - **US2 (MongoDB Persistence)**: Depends on US4 (needs userId to link conversations)
 - **US3 (Setup/Config)**: Depends on US4 + US2 (must document final state)
+- **US5 (Swagger)**: Depends on the endpoints (US4, US1, US2) existing so they can be documented.
 
 ### Within Each User Story
 
@@ -163,7 +181,8 @@
 - T012, T013, T014, T015, T016, T017 can run in parallel (independent files)
 - T028, T029 can run in parallel (different schema files)
 - T034, T035 can run in parallel (different files)
-- T038, T039 can run in parallel (different concerns)
+- T039, T040, T041 can run in parallel (independent DTOs and Controllers for Swagger)
+- T042, T043 can run in parallel (different concerns)
 
 ---
 

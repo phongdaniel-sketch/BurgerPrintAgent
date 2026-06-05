@@ -36,7 +36,10 @@ export class BurgerPrintsService {
   }
 
   /** GET có cache. */
-  async getCached(path: string, params: Record<string, unknown>): Promise<unknown> {
+  async getCached(
+    path: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const cacheKey = this.cacheKey(path, params);
     const cached = await this.redis.get(cacheKey);
     if (cached) {

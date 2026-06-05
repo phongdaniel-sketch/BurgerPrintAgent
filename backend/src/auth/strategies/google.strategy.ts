@@ -12,7 +12,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   ) {
     const clientID = configService.get<string>('oauth.google.clientID');
     const clientSecret = configService.get<string>('oauth.google.clientSecret');
-    
+
     super({
       clientID: clientID || 'dummy-client-id', // Tránh lỗi khởi tạo nếu không cấu hình
       clientSecret: clientSecret || 'dummy-client-secret',
@@ -21,10 +21,18 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     });
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: any, done: VerifyCallback): Promise<any> {
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    profile: any,
+    done: VerifyCallback,
+  ): Promise<any> {
     try {
       const user = await this.authService.validateOAuthUser(profile);
-      const tokens = await this.authService.generateTokens(user, 'google-oauth');
+      const tokens = await this.authService.generateTokens(
+        user,
+        'google-oauth',
+      );
       done(null, tokens);
     } catch (err) {
       done(err, false);

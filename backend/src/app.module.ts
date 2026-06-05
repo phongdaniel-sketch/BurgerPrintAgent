@@ -35,8 +35,6 @@ import { AuthLoggingMiddleware } from './common/middlewares/auth-logging.middlew
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(AuthLoggingMiddleware)
-      .forRoutes('auth');
+    consumer.apply(AuthLoggingMiddleware).forRoutes('auth');
   }
 }

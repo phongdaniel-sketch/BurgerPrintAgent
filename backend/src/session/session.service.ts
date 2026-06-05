@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
 import { ConversationRepository } from '../conversation/conversation.repository';
@@ -33,7 +38,10 @@ export class SessionService {
     return this.config.get<number>('session.maxContextTurns') as number;
   }
 
-  async createSession(id: string, language: Language | null = null): Promise<ConversationSession> {
+  async createSession(
+    id: string,
+    language: Language | null = null,
+  ): Promise<ConversationSession> {
     const now = new Date().toISOString();
     const session: ConversationSession = {
       id,
@@ -69,20 +77,24 @@ export class SessionService {
     // Fallback to DB
     const conversation = await this.conversationRepo.findConversationById(id);
     if (!conversation || conversation.status === 'archived') {
-      throw new NotFoundException(`Session ${id} không tồn tại hoặc đã bị lưu trữ`);
+      throw new NotFoundException(
+        `Session ${id} không tồn tại hoặc đã bị lưu trữ`,
+      );
     }
 
     // Load metadata to redis
     await this.createSession(id);
-    
+
     // Load history to redis
     const messages = await this.conversationRepo.getMessagesByConversation(id);
     if (messages.length > 0) {
-      const turns: string[] = messages.map(m => JSON.stringify({
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp.toISOString(),
-      }));
+      const turns: string[] = messages.map((m) =>
+        JSON.stringify({
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp.toISOString(),
+        }),
+      );
       await this.redis.rpush(turnsKey(id), ...turns);
       await this.redis.expire(turnsKey(id), this.ttl);
     }
@@ -90,8 +102,12 @@ export class SessionService {
     return {
       id,
       language: null,
-      createdAt: (conversation as any).createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: (conversation as any).updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt:
+        (conversation as any).createdAt?.toISOString() ||
+        new Date().toISOString(),
+      updatedAt:
+        (conversation as any).updatedAt?.toISOString() ||
+        new Date().toISOString(),
     };
   }
 
@@ -106,11 +122,16 @@ export class SessionService {
   async appendTurn(id: string, turn: ConversationTurn): Promise<void> {
     await this.redis.rpush(turnsKey(id), JSON.stringify(turn));
     await this.touch(id);
-    
+
     // Fire and forget: save to DB asynchronously
-    this.conversationRepo.saveMessage(id, turn.role, turn.content).catch(err => {
-      console.error(`Failed to save message to DB for conversation ${id}:`, err);
-    });
+    this.conversationRepo
+      .saveMessage(id, turn.role, turn.content)
+      .catch((err) => {
+        console.error(
+          `Failed to save message to DB for conversation ${id}:`,
+          err,
+        );
+      });
   }
 
   /** Lịch sử rút gọn (maxContextTurns lượt gần nhất) làm ngữ cảnh agent (FR-003). */

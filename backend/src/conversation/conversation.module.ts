@@ -5,7 +5,10 @@ import { SessionModule } from '../session/session.module';
 import { ConversationController } from './conversation.controller';
 import { ConversationService } from './conversation.service';
 import { ConversationRepository } from './conversation.repository';
-import { Conversation, ConversationSchema } from './schemas/conversation.schema';
+import {
+  Conversation,
+  ConversationSchema,
+} from './schemas/conversation.schema';
 import { Message, MessageSchema } from './schemas/message.schema';
 
 @Module({

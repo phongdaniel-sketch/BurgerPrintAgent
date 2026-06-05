@@ -79,12 +79,12 @@ export default (): RootConfig => ({
     },
   },
   llm: {
-    provider: (process.env.LLM_PROVIDER ?? 'anthropic') as 'anthropic' | 'openai',
+    provider: (process.env.LLM_PROVIDER ?? 'anthropic') as
+      | 'anthropic'
+      | 'openai',
     model:
       process.env.LLM_MODEL ??
-      (process.env.LLM_PROVIDER === 'openai'
-        ? 'gpt-4o'
-        : 'claude-sonnet-4-5'),
+      (process.env.LLM_PROVIDER === 'openai' ? 'gpt-4o' : 'claude-sonnet-4-5'),
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
     openaiBaseUrl: process.env.OPENAI_BASE_URL || undefined,
@@ -92,6 +92,9 @@ export default (): RootConfig => ({
   burgerprints: {
     baseUrl: process.env.BURGERPRINTS_API_BASE_URL as string,
     apiKey: process.env.BURGERPRINTS_API_KEY as string,
-    cacheTtlSeconds: parseInt(process.env.CATALOG_CACHE_TTL_SECONDS ?? '300', 10),
+    cacheTtlSeconds: parseInt(
+      process.env.CATALOG_CACHE_TTL_SECONDS ?? '300',
+      10,
+    ),
   },
 });

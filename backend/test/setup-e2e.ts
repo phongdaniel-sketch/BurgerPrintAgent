@@ -6,4 +6,5 @@ process.env.LLM_PROVIDER = 'anthropic';
 process.env.ANTHROPIC_API_KEY = 'test-key';
 process.env.BURGERPRINTS_API_BASE_URL =
   process.env.BURGERPRINTS_API_BASE_URL ?? 'https://api.example.com/v2';
-process.env.BURGERPRINTS_API_KEY = process.env.BURGERPRINTS_API_KEY ?? 'test-key';
+process.env.BURGERPRINTS_API_KEY =
+  process.env.BURGERPRINTS_API_KEY ?? 'test-key';

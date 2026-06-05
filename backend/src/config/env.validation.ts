@@ -7,8 +7,12 @@ import * as Joi from 'joi';
 export const envValidationSchema = Joi.object({
   PORT: Joi.number().port().default(3000),
 
-  REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),
-  MONGODB_URI: Joi.string().uri({ scheme: ['mongodb', 'mongodb+srv'] }).required(),
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .required(),
+  MONGODB_URI: Joi.string()
+    .uri({ scheme: ['mongodb', 'mongodb+srv'] })
+    .required(),
 
   JWT_SECRET: Joi.string().required(),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),

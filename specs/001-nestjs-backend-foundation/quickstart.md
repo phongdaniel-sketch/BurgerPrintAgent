@@ -100,3 +100,11 @@ curl http://localhost:3000/health
 ```
 
 > Response sẽ bao gồm trạng thái MongoDB connection.
+
+## Swagger API Documentation
+
+Sau khi server chạy thành công, truy cập Swagger UI để xem tài liệu API và test trực tiếp:
+
+```bash
+http://localhost:3000/api/docs
+```

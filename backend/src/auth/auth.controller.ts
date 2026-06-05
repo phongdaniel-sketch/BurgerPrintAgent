@@ -1,6 +1,14 @@
-import { Controller, Post, Get, Body, UseGuards, Req, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  UseGuards,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { Public } from './decorators/public.decorator';
+import { ApiPublic, ApiAuth } from '../common/decorators/http.decorators';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
@@ -13,29 +21,27 @@ import { UserDocument } from '../users/schemas/user.schema';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Public()
+  @ApiPublic({ summary: 'Register a new user' })
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
 
-  @Public()
+  @ApiPublic({ summary: 'Login user with email and password' })
   @UseGuards(LocalAuthGuard)
-  @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() loginDto: LoginDto, @Req() req: any) {
     // req.user contains tokens from LocalStrategy
     return req.user;
   }
 
-  @Public()
-  @HttpCode(HttpStatus.OK)
+  @ApiPublic({ summary: 'Refresh access token' })
   @Post('refresh')
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshToken(refreshTokenDto.refreshToken);
   }
 
-  @HttpCode(HttpStatus.OK)
+  @ApiAuth({ summary: 'Logout user' })
   @Post('logout')
   async logout(@Body() body: { refreshToken?: string }) {
     if (body.refreshToken) {
@@ -44,6 +50,7 @@ export class AuthController {
     return { success: true };
   }
 
+  @ApiAuth({ summary: 'Get current user profile' })
   @Get('me')
   getProfile(@CurrentUser() user: UserDocument) {
     return {
@@ -55,23 +62,18 @@ export class AuthController {
     };
   }
 
-  @Public()
+  @ApiPublic({ summary: 'Initiates the Google OAuth flow' })
   @UseGuards(GoogleAuthGuard)
   @Get('google')
   async googleAuth() {
     // Initiates the Google OAuth flow
   }
 
-  @Public()
+  @ApiPublic({ summary: 'Google OAuth callback' })
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
   async googleAuthRedirect(@Req() req: any, @Res() res: any) {
-    // req.user contains tokens from GoogleStrategy
     const { accessToken, refreshToken } = req.user;
-    
-    // Typically, we might redirect to frontend with tokens in URL or set cookies.
-    // For this API, returning JSON is fine, or redirecting to a preconfigured URL.
-    // We will just return JSON for simplicity in testing.
     return res.json(req.user);
   }
 }

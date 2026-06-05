@@ -27,7 +27,9 @@ describe('Session isolation (e2e)', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
   });
 
@@ -37,8 +39,10 @@ describe('Session isolation (e2e)', () => {
 
   it('lịch sử hai phiên không trộn lẫn', async () => {
     const server = app.getHttpServer();
-    const a = (await request(server).post('/conversations').send({})).body.sessionId;
-    const b = (await request(server).post('/conversations').send({})).body.sessionId;
+    const a = (await request(server).post('/conversations').send({})).body
+      .sessionId;
+    const b = (await request(server).post('/conversations').send({})).body
+      .sessionId;
     expect(a).not.toBe(b);
 
     await request(server)

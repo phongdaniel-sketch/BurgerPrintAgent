@@ -125,3 +125,21 @@
 - Volume: `mongo-data` để persist
 - Port: `27017:27017`
 - Healthcheck: `mongosh --eval "db.adminCommand('ping')"`
+
+---
+
+## R9: Swagger API Documentation
+
+### Decision: Custom Decorators wrapping `@nestjs/swagger` & `class-validator`
+
+### Rationale
+- Tự động sinh API docs và thực hiện validation đồng thời thông qua các custom decorators (`@StringField`, `@ApiAuth`, `@ApiPublic`).
+- Giảm thiểu boilerplate code trong Controller và DTO (không cần khai báo rời rạc `@ApiProperty` và `@IsString`).
+- Tập trung logic phân quyền, authentication, và response type vào các decorator chuẩn hóa như `@ApiAuth` hay `@ApiPublic`.
+- Cung cấp giao diện Swagger UI trực quan để test API ngay trên trình duyệt.
+
+### Alternatives Considered
+| Alternative | Rejected Because |
+|---|---|
+| Raw `@nestjs/swagger` decorators | Trùng lặp code nhiều khi phải khai báo cả `@ApiProperty` và class-validator |
+| Postman Collection | Phải cập nhật thủ công, dễ bị out-of-sync với code |

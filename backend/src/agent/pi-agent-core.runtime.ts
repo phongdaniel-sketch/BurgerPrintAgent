@@ -22,7 +22,9 @@ import { AgentChunk, AgentRunInput } from './agent.types';
 
 // Dynamic import gián tiếp: pi packages là ESM-only. Dùng Function để giữ `import()` thật
 // ở runtime, tránh tsc (module=commonjs) hạ cấp thành require() làm vỡ ESM.
-const esmImport = new Function('m', 'return import(m)') as (m: string) => Promise<any>;
+const esmImport = new Function('m', 'return import(m)') as (
+  m: string,
+) => Promise<any>;
 
 @Injectable()
 export class PiAgentCoreRuntime implements AgentRuntime {
@@ -40,7 +42,9 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ({ Agent } = await esmImport('@earendil-works/pi-agent-core'));
       ({ getModel } = await esmImport('@earendil-works/pi-ai'));
     } catch (err) {
-      this.logger.error(`Không tải được pi-agent-core: ${(err as Error).message}`);
+      this.logger.error(
+        `Không tải được pi-agent-core: ${(err as Error).message}`,
+      );
       yield {
         type: 'error',
         code: 'AGENT_RUNTIME_UNAVAILABLE',
@@ -75,7 +79,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       });
     } catch (err) {
       this.logger.error(`Khởi tạo pi Agent lỗi: ${(err as Error).message}`);
-      yield { type: 'error', code: 'AGENT_INIT_ERROR', message: (err as Error).message };
+      yield {
+        type: 'error',
+        code: 'AGENT_INIT_ERROR',
+        message: (err as Error).message,
+      };
       return;
     }
 
@@ -109,7 +117,11 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         case 'agent_end': {
           const errorMessage = agent.state?.errorMessage;
           if (errorMessage) {
-            push({ type: 'error', code: 'AGENT_RUNTIME_ERROR', message: errorMessage });
+            push({
+              type: 'error',
+              code: 'AGENT_RUNTIME_ERROR',
+              message: errorMessage,
+            });
           } else {
             push({ type: 'done', finishReason: 'stop' });
           }
@@ -189,12 +201,17 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Từ khóa/loại sản phẩm cần tìm' },
+          query: {
+            type: 'string',
+            description: 'Từ khóa/loại sản phẩm cần tìm',
+          },
         },
         required: ['query'],
       },
       execute: async (_toolCallId: string, params: { query?: string }) => {
-        const data = await this.burgerprints.searchProducts({ q: params?.query });
+        const data = await this.burgerprints.searchProducts({
+          q: params?.query,
+        });
         return {
           content: [{ type: 'text', text: JSON.stringify(data) }],
           details: data,

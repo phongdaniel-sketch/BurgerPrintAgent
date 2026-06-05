@@ -9,18 +9,25 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { UsersModule } from '../users/users.module';
 import { MongooseModule } from '@nestjs/mongoose';
-import { RefreshToken, RefreshTokenSchema } from '../users/schemas/refresh-token.schema';
+import {
+  RefreshToken,
+  RefreshTokenSchema,
+} from '../users/schemas/refresh-token.schema';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
-    MongooseModule.forFeature([{ name: RefreshToken.name, schema: RefreshTokenSchema }]),
+    MongooseModule.forFeature([
+      { name: RefreshToken.name, schema: RefreshTokenSchema },
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get<string>('jwt.secret') as string,
-        signOptions: { expiresIn: configService.get<string>('jwt.accessExpiresIn') as any },
+        signOptions: {
+          expiresIn: configService.get<string>('jwt.accessExpiresIn') as any,
+        },
       }),
       inject: [ConfigService],
     }),

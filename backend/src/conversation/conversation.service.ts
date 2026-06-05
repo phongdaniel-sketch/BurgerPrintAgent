@@ -15,7 +15,10 @@ export class ConversationService {
     private readonly conversationRepo: ConversationRepository,
   ) {}
 
-  async createConversation(userId: string, language: Language | null): Promise<ConversationSession> {
+  async createConversation(
+    userId: string,
+    language: Language | null,
+  ): Promise<ConversationSession> {
     const conversation = await this.conversationRepo.createConversation(userId);
     return this.sessions.createSession(conversation._id.toString(), language);
   }
@@ -27,7 +30,10 @@ export class ConversationService {
    * - Lỗi runtime → phát error chunk (đã do runtime đảm nhiệm) và không lưu assistant rỗng.
    * - Refresh TTL qua appendTurn (FR-003, FR-014).
    */
-  async *streamMessage(sessionId: string, message: string): AsyncIterable<AgentChunk> {
+  async *streamMessage(
+    sessionId: string,
+    message: string,
+  ): AsyncIterable<AgentChunk> {
     await this.sessions.getSessionOrThrow(sessionId); // 404 nếu không tồn tại/hết hạn
 
     const language = this.detectLanguage(message);
@@ -59,7 +65,9 @@ export class ConversationService {
       }
     } catch (err) {
       // Lỗi không lường trước trong runtime → biến thành error chunk có cấu trúc (FR-011).
-      this.logger.error(`Lỗi stream session=${sessionId}: ${(err as Error).message}`);
+      this.logger.error(
+        `Lỗi stream session=${sessionId}: ${(err as Error).message}`,
+      );
       errored = true;
       yield {
         type: 'error',

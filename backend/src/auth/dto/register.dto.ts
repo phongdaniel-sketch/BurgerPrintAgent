@@ -1,16 +1,23 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches, IsOptional } from 'class-validator';
+import {
+  EmailField,
+  PasswordField,
+  StringFieldOptional,
+} from '../../common/decorators/field.decorators';
 
 export class RegisterDto {
-  @IsEmail()
+  @EmailField({
+    description: 'User email address',
+    example: 'seller@example.com',
+  })
   email: string;
 
-  @IsString()
-  @MinLength(8)
-  @Matches(/(?=.*[A-Z])(?=.*\d)/, { message: 'Password must contain at least one uppercase letter and one number' })
+  @PasswordField({ description: 'User password', example: 'Password123!' })
   password: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
+  @StringFieldOptional({
+    maxLength: 100,
+    description: 'Display name',
+    example: 'John Doe',
+  })
   displayName?: string;
 }

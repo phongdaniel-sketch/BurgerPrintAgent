@@ -1,9 +1,15 @@
-import { IsEmail, IsString } from 'class-validator';
+import {
+  EmailField,
+  PasswordField,
+} from '../../common/decorators/field.decorators';
 
 export class LoginDto {
-  @IsEmail()
+  @EmailField({
+    description: 'User email address',
+    example: 'seller@example.com',
+  })
   email: string;
 
-  @IsString()
+  @PasswordField({ description: 'User password', example: 'Password123!' })
   password: string;
 }

@@ -14,6 +14,7 @@ import { AgentChunk } from '../agent/agent.types';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ConversationService } from './conversation.service';
+import { ApiAuth } from '../common/decorators/http.decorators';
 
 /** SSE MessageEvent shape của NestJS. `type` → tên event SSE. */
 interface SseMessageEvent {
@@ -28,9 +29,16 @@ export class ConversationController {
   constructor(private readonly conversation: ConversationService) {}
 
   /** Tạo phiên mới. */
+  @ApiAuth({ summary: 'Create new conversation' })
   @Post()
-  async create(@Body() dto: CreateConversationDto, @Req() req: any): Promise<{ sessionId: string }> {
-    const session = await this.conversation.createConversation(req.user._id, dto.language ?? null);
+  async create(
+    @Body() dto: CreateConversationDto,
+    @Req() req: any,
+  ): Promise<{ sessionId: string }> {
+    const session = await this.conversation.createConversation(
+      req.user._id,
+      dto.language ?? null,
+    );
     return { sessionId: session.id };
   }
 
@@ -38,6 +46,7 @@ export class ConversationController {
    * Hội thoại streaming qua SSE (FR-002). EventSource dùng GET, message qua query.
    * Map AgentChunk → MessageEvent; đóng luồng sạch khi done/error/disconnect (FR-011, FR-013).
    */
+  @ApiAuth({ summary: 'Stream conversation messages via SSE' })
   @Sse(':sessionId/stream')
   stream(
     @Param('sessionId') sessionId: string,
@@ -53,7 +62,10 @@ export class ConversationController {
 
       (async () => {
         try {
-          for await (const chunk of this.conversation.streamMessage(sessionId, message)) {
+          for await (const chunk of this.conversation.streamMessage(
+            sessionId,
+            message,
+          )) {
             if (cancelled) break;
             subscriber.next({ type: chunk.type, data: this.toData(chunk) });
           }
@@ -85,6 +97,7 @@ export class ConversationController {
   }
 
   /** Fallback non-stream — tiện curl/test (R3). */
+  @ApiAuth({ summary: 'Send message to conversation without SSE' })
   @Post(':sessionId/messages')
   async sendMessage(
     @Param('sessionId') sessionId: string,

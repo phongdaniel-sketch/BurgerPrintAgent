@@ -28,7 +28,9 @@ describe('Conversation (e2e)', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
   });
 
@@ -37,13 +39,17 @@ describe('Conversation (e2e)', () => {
   });
 
   it('POST /conversations tạo phiên', async () => {
-    const res = await request(app.getHttpServer()).post('/conversations').send({});
+    const res = await request(app.getHttpServer())
+      .post('/conversations')
+      .send({});
     expect(res.status).toBe(201);
     expect(res.body.sessionId).toBeDefined();
   });
 
   it('GET /conversations/:id/stream phát SSE token...done', async () => {
-    const create = await request(app.getHttpServer()).post('/conversations').send({});
+    const create = await request(app.getHttpServer())
+      .post('/conversations')
+      .send({});
     const sid = create.body.sessionId;
 
     const res = await request(app.getHttpServer())
@@ -63,7 +69,9 @@ describe('Conversation (e2e)', () => {
   });
 
   it('POST /conversations/:id/messages trả reply (fallback)', async () => {
-    const create = await request(app.getHttpServer()).post('/conversations').send({});
+    const create = await request(app.getHttpServer())
+      .post('/conversations')
+      .send({});
     const sid = create.body.sessionId;
 
     const res = await request(app.getHttpServer())

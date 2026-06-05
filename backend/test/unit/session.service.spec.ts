@@ -8,10 +8,12 @@ function makeService(): { service: SessionService; redis: InMemoryRedis } {
   const redis = new InMemoryRedis();
   const config = {
     get: (key: string) =>
-      ({ 'session.ttlSeconds': 3600, 'session.maxContextTurns': 12 } as Record<
-        string,
-        number
-      >)[key],
+      (
+        ({
+          'session.ttlSeconds': 3600,
+          'session.maxContextTurns': 12,
+        }) as Record<string, number>
+      )[key],
   } as unknown as ConfigService;
   const service = new SessionService(redis as unknown as RedisService, config);
   return { service, redis };
@@ -37,7 +39,11 @@ describe('SessionService', () => {
     const { service } = makeService();
     const s = await service.createSession(null);
     await service.appendTurn(s.id, { role: 'user', content: 'hi', ts: 't1' });
-    await service.appendTurn(s.id, { role: 'assistant', content: 'hello', ts: 't2' });
+    await service.appendTurn(s.id, {
+      role: 'assistant',
+      content: 'hello',
+      ts: 't2',
+    });
     const turns = await service.getAllTurns(s.id);
     expect(turns.map((t) => t.content)).toEqual(['hi', 'hello']);
   });
@@ -54,7 +60,11 @@ describe('SessionService', () => {
     const { service } = makeService();
     const s = await service.createSession(null);
     for (let i = 0; i < 20; i++) {
-      await service.appendTurn(s.id, { role: 'user', content: `m${i}`, ts: `t${i}` });
+      await service.appendTurn(s.id, {
+        role: 'user',
+        content: `m${i}`,
+        ts: `t${i}`,
+      });
     }
     const ctx = await service.getContextTurns(s.id);
     expect(ctx).toHaveLength(12);
