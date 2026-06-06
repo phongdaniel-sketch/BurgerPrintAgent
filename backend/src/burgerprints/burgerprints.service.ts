@@ -86,13 +86,27 @@ export class BurgerPrintsService {
 
     let candidates = mapped;
     if (kw) {
-      const mini = new MiniSearch<{ id: string; name: string }>({
-        fields: ['name'],
+      // Index cả NAME và mô tả (html_desc strip + desc) → search được theo chất liệu,
+      // kỹ thuật in (DTG/DTF), đặc điểm ("long sleeve", "heavyweight", "cotton")...
+      // Boost `name` cao hơn để khớp tên vẫn xếp đầu.
+      const mini = new MiniSearch<{ id: string; name: string; text: string }>({
+        fields: ['name', 'text'],
         storeFields: ['id'],
         tokenize: (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [],
-        searchOptions: { fuzzy: 0.2, prefix: true, combineWith: 'AND' },
+        searchOptions: {
+          boost: { name: 4 },
+          fuzzy: 0.2,
+          prefix: true,
+          combineWith: 'AND',
+        },
       });
-      mini.addAll(mapped.map((p) => ({ id: p.short_code, name: p.name })));
+      mini.addAll(
+        all.map((p) => ({
+          id: p.short_code,
+          name: p.name,
+          text: `${stripHtml(p.html_desc ?? '')} ${p.desc ?? ''}`,
+        })),
+      );
       const ranked = mini.search(kw); // theo điểm BM25 giảm dần
       const byCode = new Map(mapped.map((p) => [p.short_code, p]));
       candidates = ranked
@@ -551,4 +565,13 @@ export class BurgerPrintsService {
     const hash = createHash('sha1').update(path).digest('hex').slice(0, 16);
     return `catalog:${hash}`;
   }
+}
+
+/** Strip HTML tags → text thuần để index full-text (BM25). */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

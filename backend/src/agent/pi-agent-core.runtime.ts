@@ -296,9 +296,9 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     return [
       tool(
         'search_products',
-        'Tìm sản phẩm theo loại + thị trường + giá vốn tối đa. Trả về danh sách kèm base_cost ' +
-          '(giá vốn thấp nhất), xưởng rẻ nhất, số màu — đã sort theo giá tăng dần. Dùng cho ' +
-          'câu kiểu "T-shirt thị trường Mỹ giá vốn dưới $8".',
+        'Tìm sản phẩm theo loại/ĐẶC ĐIỂM + thị trường + giá vốn tối đa. category khớp full-text ' +
+          'cả TÊN lẫn mô tả (chất liệu vd "cotton"/"ring-spun", kỹ thuật in "DTG"/"DTF", đặc điểm ' +
+          '"long sleeve"/"fleece"...). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu, sort theo giá.',
         {
           category: {
             type: 'string',
@@ -450,7 +450,7 @@ export function defaultSystemPrompt(): string {
     `LANGUAGE: Always reply in the SAME language as the seller's latest message (auto-detect). Be concise and decision-ready; use compact markdown tables when comparing.`,
     ``,
     `TOOLS & WORKFLOW:`,
-    `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist.`,
+    `1. search_products(category, market?, max_base_cost?) → products by type/FEATURE in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. category is full-text over name + description, so you can search by material ("cotton", "ring-spun"), print technique ("DTG"/"DTF") or feature ("long sleeve", "fleece"). Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist.`,
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
     `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
@@ -482,7 +482,7 @@ export function defaultSystemPrompt(): string {
 export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'search_products',
-    desc: 'Tìm sản phẩm theo loại + thị trường + giá vốn tối đa (category, market, max_base_cost). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu — sort theo giá. Dùng để khám phá hoặc liệt kê sub-type của một loại.',
+    desc: 'Tìm sản phẩm theo loại/đặc điểm + thị trường + giá vốn tối đa. category khớp full-text cả tên lẫn mô tả (chất liệu "cotton"/"ring-spun", kỹ thuật in DTG/DTF, đặc điểm "long sleeve"/"fleece"). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu — sort theo giá.',
   },
   {
     name: 'compare_factories',
