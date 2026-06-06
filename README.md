@@ -82,7 +82,7 @@ backend/                  # NestJS backend (xem backend/README.md)
   src/{conversation,agent,session,burgerprints,redis,config,health,common}
   test/{unit,e2e}
 specs/001-nestjs-backend-foundation/   # spec-kit: spec, plan, research, data-model, contracts, tasks
-docs/                     # detai.md (đề bài) + api-specs.md (BurgerPrints API v2) + Requirement.md (yêu cầu) + UserFlow-UseCases.md (User Flow & Use Cases) + TestCases.md (kịch bản kiểm thử)
+docs/                     # detai.md (đề bài) + api-specs.md (BurgerPrints API v2) + Requirement.md (yêu cầu) + UserFlow-UseCases.md (User Flow & Use Cases) + TestCases.md (kịch bản kiểm thử) + Bonus-ImageAnalysisUseCase.md (nhận diện ảnh thiết kế)
 ```
 
 Dự án phát triển theo [spec-kit](https://github.com/github/spec-kit) (specify → plan → tasks → implement).
