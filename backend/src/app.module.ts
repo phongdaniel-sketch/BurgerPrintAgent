@@ -12,10 +12,12 @@ import { AuthModule } from './auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AuthLoggingMiddleware } from './common/middlewares/auth-logging.middleware';
+import { LoggingModule } from './logging/logging.module';
 
 @Module({
   imports: [
     AppConfigModule,
+    LoggingModule,
     DatabaseModule,
     RedisModule,
     SessionModule,
