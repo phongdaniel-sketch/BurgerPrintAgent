@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BurgerPrintsModule } from '../burgerprints/burgerprints.module';
+import { MemoryModule } from '../memory/memory.module';
 import { AGENT_RUNTIME } from './agent-runtime.port';
 import { PiAgentCoreRuntime } from './pi-agent-core.runtime';
 
@@ -8,7 +9,7 @@ import { PiAgentCoreRuntime } from './pi-agent-core.runtime';
  * Trong test, provider AGENT_RUNTIME được override bằng một test-double.
  */
 @Module({
-  imports: [BurgerPrintsModule],
+  imports: [BurgerPrintsModule, MemoryModule],
   providers: [{ provide: AGENT_RUNTIME, useClass: PiAgentCoreRuntime }],
   exports: [AGENT_RUNTIME],
 })

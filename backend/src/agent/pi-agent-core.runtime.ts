@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BurgerPrintsService } from '../burgerprints/burgerprints.service';
+import { MemoryService } from '../memory/memory.service';
 import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
 
@@ -33,6 +34,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
   constructor(
     private readonly config: ConfigService,
     private readonly burgerprints: BurgerPrintsService,
+    private readonly memory: MemoryService,
   ) {}
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
@@ -80,7 +82,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         initialState: {
           systemPrompt: this.buildSystemPrompt(input),
           model,
-          tools: this.buildTools(),
+          tools: this.buildTools(input),
           // Lịch sử trước lượt hiện tại (lượt user hiện tại được gửi qua prompt()).
           messages: this.toAgentMessages(input),
         },
@@ -244,7 +246,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
   }
 
   /** Bộ tool tra cứu BurgerPrints API v2.0 (mỗi tool trả dữ liệu compact). */
-  private buildTools(): unknown[] {
+  private buildTools(input: AgentRunInput): unknown[] {
     const tool = (
       name: string,
       description: string,
@@ -367,6 +369,18 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             sandbox: p.sandbox,
           }),
       ),
+      tool(
+        'search_history',
+        'Tìm trong LỊCH SỬ hội thoại (BM25) khi seller nhắc tới điều đã nói trước đó mà KHÔNG có trong ngữ cảnh hiện tại (chỉ N lượt gần nhất được đưa vào). Trả các lượt liên quan nhất.',
+        {
+          query: {
+            type: 'string',
+            description: 'Từ khoá/nội dung cần tìm lại trong hội thoại trước',
+          },
+        },
+        ['query'],
+        (p) => this.memory.searchHistory(input.sessionId, p.query),
+      ),
     ];
   }
 }
@@ -384,6 +398,7 @@ export function defaultSystemPrompt(): string {
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
     `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
+    `5. search_history(query) → search the FULL conversation history (BM25). Only the last few turns are in your context; if the seller refers to something said earlier that you don't see, call search_history to retrieve it instead of guessing or saying you forgot.`,
     ``,
     `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
@@ -422,5 +437,9 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'create_order',
     desc: 'Tạo đơn fulfillment (shipping + items). Mặc định sandbox=true (đơn thử). Chỉ gọi sau khi seller xác nhận SKU + số lượng + địa chỉ.',
+  },
+  {
+    name: 'search_history',
+    desc: 'Tìm lại trong lịch sử hội thoại (BM25) khi seller nhắc tới điều đã nói trước đó mà không còn trong ngữ cảnh hiện tại (chỉ N lượt gần nhất được nạp).',
   },
 ];
