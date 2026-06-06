@@ -368,7 +368,7 @@ export default function App() {
             onClick={() => setShowPrompt(false)}
           >
             <motion.div
-              className="bg-white rounded-2xl w-full max-w-2xl max-h-[84vh] flex flex-col p-5 shadow-2xl"
+              className="bg-white rounded-2xl w-full max-w-4xl h-[80vh] flex flex-col p-5 shadow-2xl"
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -384,32 +384,39 @@ export default function App() {
                   ✕
                 </button>
               </div>
-              <p className="text-[12.5px] text-stone-400 mt-1.5 mb-2.5">
+              <p className="text-[12.5px] text-stone-400 mt-1.5 mb-3">
                 Chỉnh cách agent hành xử cho phiên này. Để trống / Khôi phục mặc định để dùng prompt gốc.
               </p>
-              {tools.length > 0 && (
-                <div className="mb-2.5 rounded-xl border border-stone-200 bg-stone-50 p-3 max-h-40 overflow-y-auto">
-                  <div className="text-[12px] font-semibold text-stone-500 mb-1.5">
-                    🛠️ Tool agent có thể dùng (tham khảo khi viết prompt)
+              <div className="flex gap-4 flex-1 min-h-0">
+                {tools.length > 0 && (
+                  <div className="w-[38%] flex flex-col rounded-xl border border-stone-200 bg-stone-50 overflow-hidden">
+                    <div className="text-[12px] font-semibold text-stone-500 px-3.5 pt-3 pb-2 flex-none">
+                      🛠️ Tool agent có thể dùng
+                    </div>
+                    <div className="flex flex-col gap-2.5 px-3.5 pb-3 overflow-y-auto">
+                      {tools.map((t) => (
+                        <div key={t.name} className="text-[12.5px] leading-snug">
+                          <code className="text-stone-800 bg-stone-200/70 px-1.5 py-0.5 rounded font-mono">
+                            {t.name}
+                          </code>
+                          <div className="text-stone-500 mt-0.5">{t.desc}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    {tools.map((t) => (
-                      <div key={t.name} className="text-[12.5px] leading-snug">
-                        <code className="text-stone-800 bg-stone-200/70 px-1.5 py-0.5 rounded font-mono">
-                          {t.name}
-                        </code>
-                        <span className="text-stone-500"> — {t.desc}</span>
-                      </div>
-                    ))}
+                )}
+                <div className="flex-1 flex flex-col min-w-0">
+                  <div className="text-[12px] font-semibold text-stone-500 mb-1.5 flex-none">
+                    System prompt
                   </div>
+                  <textarea
+                    className="flex-1 resize-none border border-stone-200 rounded-xl p-3.5 text-[13px] leading-relaxed font-mono text-stone-800 outline-none focus:border-stone-300"
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    spellCheck={false}
+                  />
                 </div>
-              )}
-              <textarea
-                className="flex-1 min-h-[180px] resize-y border border-stone-200 rounded-xl p-3.5 text-[13px] leading-relaxed font-mono text-stone-800 outline-none focus:border-stone-300"
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                spellCheck={false}
-              />
+              </div>
               <div className="flex items-center gap-2 mt-3">
                 <button
                   className="border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 text-[13.5px] px-3.5 py-2 rounded-[10px] transition-colors disabled:opacity-50"
