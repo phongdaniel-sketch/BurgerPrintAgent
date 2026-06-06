@@ -60,19 +60,27 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     let agent: any;
     try {
       // pi-ai tự đọc API key từ env (ANTHROPIC_API_KEY / OPENAI_API_KEY).
-      const model = getModel(provider, modelId);
-
-      // Override endpoint cho OpenAI-compatible API (proxy/Azure/OpenRouter/local).
       const openaiBaseUrl = this.config.get<string>('llm.openaiBaseUrl');
+      let model: any;
+
       if (provider === 'openai' && openaiBaseUrl) {
+        // Proxy OpenAI-compatible (vilao/OpenRouter/Azure/local): model id có thể
+        // KHÔNG nằm trong registry pi-ai (vd "gx/gpt-5.4"). Dựng từ template hợp lệ
+        // rồi override id + baseUrl, và ép dùng /chat/completions (proxy thường hỗ trợ
+        // completions, không phải Responses API → tránh lỗi "messages null").
+        model = getModel('openai', 'gpt-4o');
+        if (modelId) model.id = modelId;
         model.baseUrl = openaiBaseUrl;
+        model.api = 'openai-completions';
+      } else {
+        model = getModel(provider, modelId);
       }
 
       agent = new Agent({
         initialState: {
           systemPrompt: this.buildSystemPrompt(input),
           model,
-          tools: [this.buildSearchTool()],
+          tools: this.buildTools(),
           // Lịch sử trước lượt hiện tại (lượt user hiện tại được gửi qua prompt()).
           messages: this.toAgentMessages(input),
         },
@@ -105,14 +113,26 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           const e = event.assistantMessageEvent;
           if (e?.type === 'text_delta' && e.delta) {
             push({ type: 'token', text: e.delta });
+          } else if (e?.type === 'thinking_delta' && e.delta) {
+            push({ type: 'thinking', text: e.delta });
           }
           break;
         }
         case 'tool_execution_start':
-          push({ type: 'tool', name: event.toolName, status: 'running' });
+          push({
+            type: 'tool',
+            id: event.toolCallId,
+            name: event.toolName,
+            status: 'running',
+          });
           break;
         case 'tool_execution_end':
-          push({ type: 'tool', name: event.toolName, status: 'done' });
+          push({
+            type: 'tool',
+            id: event.toolCallId,
+            name: event.toolName,
+            status: 'done',
+          });
           break;
         case 'agent_end': {
           const errorMessage = agent.state?.errorMessage;
@@ -156,15 +176,35 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     }
   }
 
-  /** System prompt định hướng agent (ngôn ngữ + vai trò tư vấn fulfillment). */
+  /** System prompt định hướng agent (vai trò, ngôn ngữ, quy trình tool, công thức margin). */
   private buildSystemPrompt(input: AgentRunInput): string {
     const lang = input.language === 'en' ? 'English' : 'Vietnamese';
-    return (
-      `You are BurgerPrintsAgent, a POD fulfillment catalog assistant for sellers. ` +
-      `Help them find, compare, and choose products/factories/SKUs using the BurgerPrints catalog tool. ` +
-      `Always answer in ${lang}. Be concise and decision-ready; cite price and factory (partner_name) when comparing. ` +
-      `Use the burgerprints_search tool to fetch real data — never invent catalog data.`
-    );
+    return [
+      `You are BurgerPrintsAgent — a POD (print-on-demand) fulfillment catalog assistant for BurgerPrints sellers.`,
+      `Goal: help sellers SEARCH, COMPARE and CHOOSE products / factories / SKUs to fulfill, using ONLY real data from the tools.`,
+      ``,
+      `LANGUAGE: Always reply in ${lang} (mirror the seller's language). Be concise and decision-ready; use compact markdown tables when comparing.`,
+      ``,
+      `TOOLS & WORKFLOW:`,
+      `1. search_products(keyword, market?) → list base products matching a product type (e.g. "t-shirt", "hoodie") and market (US/EU/CN). Use this first for broad queries.`,
+      `2. get_product_pricing(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use to compare factories or get price for margin.`,
+      `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price) for a product. Use when the seller wants specific color/size or to order.`,
+      ``,
+      `KEY DATA FACTS:`,
+      `- "Factory" = partner_name. One product is fulfilled by MANY factories at different base costs.`,
+      `- "price" = base cost of the 1st item; "2nd_price" = cost from the 2nd item onward.`,
+      `- Market is inferred from short_code prefix (US.., EU.., AP..=CN) — pass market to search_products to narrow.`,
+      `- ⚠️ Shipping fee by destination is NOT in the catalog API. Do not invent it; say it's only known at order time, and use factory location + base cost for guidance.`,
+      ``,
+      `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute margin on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100).`,
+      ``,
+      `BEHAVIOR:`,
+      `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
+      `- No match → relax the filter and suggest the closest options; never return empty-handed silently.`,
+      `- Out-of-scope question → politely redirect to the BurgerPrints POD catalog.`,
+      `- NEVER invent catalog data, prices, factories or SKUs. If a tool returns an error, tell the seller you couldn't fetch the data.`,
+      `- After answering, suggest a helpful next step (e.g. "Want me to compare factories or show available colors?").`,
+    ].join('\n');
   }
 
   /**
@@ -187,36 +227,73 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     });
   }
 
-  /**
-   * Tool tra cứu BurgerPrints API v2.0. pi dùng typebox schema cho tham số.
-   * Dùng plain JSON schema object (tương thích typebox runtime ở mức cơ bản).
-   */
-  private buildSearchTool(): unknown {
-    return {
-      name: 'burgerprints_search',
-      label: 'BurgerPrints catalog search',
-      description:
-        'Tìm sản phẩm/xưởng/SKU fulfillment trên BurgerPrints theo tiêu chí ' +
-        '(loại sản phẩm, thị trường, giá vốn, thời gian ship). Trả dữ liệu thật từ API v2.0.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Từ khóa/loại sản phẩm cần tìm',
-          },
-        },
-        required: ['query'],
-      },
-      execute: async (_toolCallId: string, params: { query?: string }) => {
-        const data = await this.burgerprints.searchProducts({
-          q: params?.query,
-        });
+  /** Bộ tool tra cứu BurgerPrints API v2.0 (mỗi tool trả dữ liệu compact). */
+  private buildTools(): unknown[] {
+    const tool = (
+      name: string,
+      description: string,
+      properties: Record<string, unknown>,
+      required: string[],
+      run: (params: any) => Promise<unknown>,
+    ) => ({
+      name,
+      description,
+      parameters: { type: 'object', properties, required },
+      execute: async (_id: string, params: any) => {
+        const data = await run(params ?? {});
         return {
           content: [{ type: 'text', text: JSON.stringify(data) }],
           details: data,
         };
       },
-    };
+    });
+
+    return [
+      tool(
+        'search_products',
+        'Tìm danh sách base product theo loại sản phẩm và thị trường. Dùng đầu tiên cho câu hỏi chung. Trả short_code + tên + market + chất liệu/kỹ thuật in (KHÔNG có giá — lấy giá qua get_product_pricing).',
+        {
+          keyword: {
+            type: 'string',
+            description: 'Loại/từ khoá sản phẩm, vd "t-shirt", "hoodie", "tank top"',
+          },
+          market: {
+            type: 'string',
+            description: 'Thị trường: US | EU | CN | AU (tùy chọn)',
+          },
+        },
+        [],
+        (p) => this.burgerprints.searchProducts(p),
+      ),
+      tool(
+        'get_product_pricing',
+        'Lấy giá vốn (base cost) theo từng XƯỞNG (partner_name) + sizes/màu của MỘT sản phẩm. Dùng để so sánh xưởng hoặc tính margin.',
+        {
+          short_code: {
+            type: 'string',
+            description: 'Mã sản phẩm, vd "USG5000" (lấy từ search_products)',
+          },
+        },
+        ['short_code'],
+        (p) => this.burgerprints.getProductPricing(p.short_code),
+      ),
+      tool(
+        'get_product_variants',
+        'Liệt kê SKU cụ thể (sku, màu, size, giá, xưởng) của một sản phẩm, lọc theo màu/size/xưởng. Dùng khi seller muốn màu/size cụ thể hoặc chuẩn bị đặt hàng.',
+        {
+          short_code: { type: 'string', description: 'Mã sản phẩm' },
+          color: { type: 'string', description: 'Lọc theo màu (tùy chọn)' },
+          size: { type: 'string', description: 'Lọc theo size (tùy chọn)' },
+          factory: { type: 'string', description: 'Lọc theo xưởng (tùy chọn)' },
+        },
+        ['short_code'],
+        (p) =>
+          this.burgerprints.getProductVariants(p.short_code, {
+            color: p.color,
+            size: p.size,
+            factory: p.factory,
+          }),
+      ),
+    ];
   }
 }

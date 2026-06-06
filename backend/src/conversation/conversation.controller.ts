@@ -110,8 +110,10 @@ export class ConversationController {
     switch (chunk.type) {
       case 'token':
         return { text: chunk.text };
+      case 'thinking':
+        return { text: chunk.text };
       case 'tool':
-        return { name: chunk.name, status: chunk.status };
+        return { id: chunk.id, name: chunk.name, status: chunk.status };
       case 'error':
         return { code: chunk.code, message: chunk.message };
       case 'done':

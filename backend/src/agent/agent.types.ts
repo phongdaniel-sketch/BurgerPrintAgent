@@ -1,14 +1,20 @@
 import { ConversationTurn, Language } from '../session/session.types';
 
 /** Chunk phát ra từ AgentRuntime.run() → map sang SSE event (data-model: AgentChunk). */
-export type AgentChunkType = 'token' | 'tool' | 'error' | 'done';
+export type AgentChunkType = 'token' | 'thinking' | 'tool' | 'error' | 'done';
 
 export interface AgentTokenChunk {
   type: 'token';
   text: string;
 }
+/** Suy luận của model (reasoning) — hiển thị trong timeline "thinking", không lưu vào reply. */
+export interface AgentThinkingChunk {
+  type: 'thinking';
+  text: string;
+}
 export interface AgentToolChunk {
   type: 'tool';
+  id?: string; // toolCallId để FE khớp start/end (tool có thể chạy song song)
   name: string;
   status: 'running' | 'done';
 }
@@ -24,6 +30,7 @@ export interface AgentDoneChunk {
 
 export type AgentChunk =
   | AgentTokenChunk
+  | AgentThinkingChunk
   | AgentToolChunk
   | AgentErrorChunk
   | AgentDoneChunk;
