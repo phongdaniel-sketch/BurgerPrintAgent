@@ -2,8 +2,10 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import MiniSearch from 'minisearch';
 import { firstValueFrom } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
+import { CatalogV1Service } from '../catalog-v1/catalog-v1.service';
 
 /**
  * Client BurgerPrints API v2.0 (FR-006). Header auth: `api-key`.
@@ -26,7 +28,17 @@ export class BurgerPrintsService {
     private readonly http: HttpService,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly catalogV1: CatalogV1Service,
   ) {}
+
+  /** Tool get_shipping: phí + thời gian ship của 1 xưởng tới từng nước (catalog-api v1). */
+  async getShipping(
+    shortCode: string,
+    partnerId: string,
+    country?: string,
+  ): Promise<unknown> {
+    return this.catalogV1.getShipping(shortCode, partnerId, country);
+  }
 
   private get baseUrl(): string {
     return this.config.get<string>('burgerprints.baseUrl') as string;
@@ -59,19 +71,50 @@ export class BurgerPrintsService {
         : null;
     const limit = Math.min(params.limit ?? 15, 25);
 
-    // B1: lọc theo category (tên) + market từ catalog đã cache (rẻ)
-    const matched = all
-      .map((p) => ({
-        short_code: p.short_code,
-        name: p.name,
-        market: this.marketOf(p.short_code, this.parseHtmlDesc(p.html_desc ?? '').location),
-        html_desc: p.html_desc,
-      }))
-      .filter((p) => {
-        const kwOk = !kw || p.name?.toLowerCase().includes(kw);
-        const marketOk = !market || p.market === market;
-        return kwOk && marketOk;
+    // B1: lọc theo category (tên) + market.
+    // Khớp tên bằng MiniSearch (BM25): tokenize → bỏ ký tự đặc biệt (+,|), fuzzy/prefix,
+    // và XẾP HẠNG theo độ liên quan (tên cụ thể nổi lên đầu, không bị chìm theo giá).
+    const mapped = all.map((p) => ({
+      short_code: p.short_code,
+      name: p.name,
+      market: this.marketOf(
+        p.short_code,
+        this.parseHtmlDesc(p.html_desc ?? '').location,
+      ),
+      html_desc: p.html_desc,
+    }));
+
+    let candidates = mapped;
+    if (kw) {
+      // Index cả NAME và mô tả (html_desc strip + desc) → search được theo chất liệu,
+      // kỹ thuật in (DTG/DTF), đặc điểm ("long sleeve", "heavyweight", "cotton")...
+      // Boost `name` cao hơn để khớp tên vẫn xếp đầu.
+      const mini = new MiniSearch<{ id: string; name: string; text: string }>({
+        fields: ['name', 'text'],
+        storeFields: ['id'],
+        tokenize: (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [],
+        searchOptions: {
+          boost: { name: 4 },
+          fuzzy: 0.2,
+          prefix: true,
+          combineWith: 'AND',
+        },
       });
+      mini.addAll(
+        all.map((p) => ({
+          id: p.short_code,
+          name: p.name,
+          text: `${stripHtml(p.html_desc ?? '')} ${p.desc ?? ''}`,
+        })),
+      );
+      const ranked = mini.search(kw); // theo điểm BM25 giảm dần
+      const byCode = new Map(mapped.map((p) => [p.short_code, p]));
+      candidates = ranked
+        .map((r: any) => byCode.get(r.id))
+        .filter(Boolean) as typeof mapped;
+    }
+
+    const matched = candidates.filter((p) => !market || p.market === market);
 
     // B2: enrich GIÁ (base cost) bằng product detail — fetch song song, có cache.
     // Cap số sản phẩm enrich để giữ độ trễ hợp lý.
@@ -96,7 +139,7 @@ export class BurgerPrintsService {
       const meta = this.parseHtmlDesc(d.html_desc ?? '');
       return {
         short_code: p.short_code,
-        name: p.name,
+        name: cleanName(p.name),
         market: p.market,
         base_cost: Number.isFinite(min) ? min : null,
         cheapest_factory: factory,
@@ -108,11 +151,16 @@ export class BurgerPrintsService {
 
     // B3: filter theo max_base_cost + sort theo giá tăng dần
     let result = enriched.filter((r) => r.base_cost != null);
-    if (maxCost != null) result = result.filter((r) => (r.base_cost as number) <= maxCost);
+    if (maxCost != null)
+      result = result.filter((r) => (r.base_cost as number) <= maxCost);
     result.sort((a, b) => (a.base_cost as number) - (b.base_cost as number));
 
     return {
-      query: { category: kw || null, market: market || null, max_base_cost: maxCost },
+      query: {
+        category: kw || null,
+        market: market || null,
+        max_base_cost: maxCost,
+      },
       total_matched: matched.length,
       enriched: toEnrich.length,
       qualified: result.length,
@@ -130,12 +178,15 @@ export class BurgerPrintsService {
   ): Promise<R[]> {
     const out: R[] = new Array(items.length);
     let i = 0;
-    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (i < items.length) {
-        const idx = i++;
-        out[idx] = await fn(items[idx]);
-      }
-    });
+    const workers = Array.from(
+      { length: Math.min(limit, items.length) },
+      async () => {
+        while (i < items.length) {
+          const idx = i++;
+          out[idx] = await fn(items[idx]);
+        }
+      },
+    );
     await Promise.all(workers);
     return out;
   }
@@ -149,35 +200,47 @@ export class BurgerPrintsService {
     const d = (detail as any).data ?? detail;
     const variations: any[] = d.variations ?? [];
 
-    // Gom theo xưởng (partner_name) → min/max base cost + số SKU.
+    // Gom theo xưởng (partner_name) → min/max base cost + số SKU + partner_id.
     const byFactory = new Map<
       string,
-      { min: number; max: number; count: number }
+      { min: number; max: number; count: number; partner_id: string | null }
     >();
     for (const v of variations) {
       const f = v.partner_name || 'Unknown';
       const price = parseFloat(v.price);
       if (Number.isNaN(price)) continue;
-      const cur = byFactory.get(f) ?? { min: price, max: price, count: 0 };
+      const cur = byFactory.get(f) ?? {
+        min: price,
+        max: price,
+        count: 0,
+        partner_id: v.partner_id ?? null,
+      };
       cur.min = Math.min(cur.min, price);
       cur.max = Math.max(cur.max, price);
       cur.count += 1;
       byFactory.set(f, cur);
     }
 
+    // Processing time mỗi xưởng (catalog-api v1) — best-effort, cache.
+    const processing = await this.catalogV1.getProcessingByPartner(
+      d.short_code,
+    );
+
     const factories = [...byFactory.entries()]
       .map(([partner_name, s]) => ({
         partner_name,
+        partner_id: s.partner_id, // dùng cho get_shipping
         min_price: s.min,
         max_price: s.max,
         sku_count: s.count,
+        processing_time: (s.partner_id && processing[s.partner_id]) || null,
       }))
       .sort((a, b) => a.min_price - b.min_price);
 
     const meta = this.parseHtmlDesc(d.html_desc ?? '');
     return {
       short_code: d.short_code,
-      name: d.name,
+      name: cleanName(d.name),
       market: this.marketOf(d.short_code, meta.location),
       printing: meta.printing,
       location: meta.location,
@@ -231,7 +294,7 @@ export class BurgerPrintsService {
 
     return {
       short_code: d.short_code,
-      name: d.name,
+      name: cleanName(d.name),
       total_matched: matched.length,
       out_of_stock_count: matched.filter((m) => !m.in_stock).length,
       note: 'Dùng catalog_sku (KHÔNG phải sku) khi create_order. in_stock=false là SKU hết hàng — không gợi ý/đặt.',
@@ -278,8 +341,12 @@ export class BurgerPrintsService {
       items: payload.items.map((it) => ({
         catalog_sku: it.catalog_sku,
         quantity: it.quantity,
-        ...(it.design_url_front ? { design_url_front: it.design_url_front } : {}),
-        ...(it.mockup_url_front ? { mockup_url_front: it.mockup_url_front } : {}),
+        ...(it.design_url_front
+          ? { design_url_front: it.design_url_front }
+          : {}),
+        ...(it.mockup_url_front
+          ? { mockup_url_front: it.mockup_url_front }
+          : {}),
       })),
       // Mặc định sandbox=true (không phát sinh đơn thật) trừ khi seller xác nhận thật.
       sandbox: payload.sandbox ?? true,
@@ -288,7 +355,10 @@ export class BurgerPrintsService {
     try {
       const res = await firstValueFrom(
         this.http.post(`${this.baseUrl}/order`, body, {
-          headers: { 'api-key': this.apiKey, 'Content-Type': 'application/json' },
+          headers: {
+            'api-key': this.apiKey,
+            'Content-Type': 'application/json',
+          },
           timeout: 20_000,
         }),
       );
@@ -441,8 +511,10 @@ export class BurgerPrintsService {
       .replace(/\s+/g, ' ')
       .trim();
     const processingTime =
-      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i.exec(text)?.[1]?.trim()?.slice(0, 50) ??
-      null;
+      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i
+        .exec(text)?.[1]
+        ?.trim()
+        ?.slice(0, 50) ?? null;
     const printing =
       /(?:Printing tech\w*|Technique)[:\s]*([^.<]+?)(?:\.|Manufactured|Location|$)/i.exec(
         text,
@@ -453,8 +525,9 @@ export class BurgerPrintsService {
       /Location[:\s]*([A-Za-z ]+?)(?:\.|,|<|$)/i.exec(text)?.[1]?.trim() ??
       null;
     const material =
-      /(\d+%[^.]*?(?:cotton|polyester|spandex)[^.]*)/i.exec(text)?.[1]?.trim() ??
-      null;
+      /(\d+%[^.]*?(?:cotton|polyester|spandex)[^.]*)/i
+        .exec(text)?.[1]
+        ?.trim() ?? null;
     return {
       material: material ? material.slice(0, 80) : null,
       printing: printing ? printing.trim().slice(0, 40) : null,
@@ -492,4 +565,21 @@ export class BurgerPrintsService {
     const hash = createHash('sha1').update(path).digest('hex').slice(0, 16);
     return `catalog:${hash}`;
   }
+}
+
+/**
+ * Tên sản phẩm BurgerPrints có dạng "Type | Model" (vd "Unisex T-Shirt | Gildan 5000").
+ * Dấu `|` làm VỠ cột markdown table khi LLM in ra → thay bằng "·".
+ */
+function cleanName(name: string): string {
+  return (name ?? '').replace(/\s*\|\s*/g, ' · ').trim();
+}
+
+/** Strip HTML tags → text thuần để index full-text (BM25). */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
