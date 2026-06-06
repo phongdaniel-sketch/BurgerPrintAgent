@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, Plus } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, Plus, Sparkles } from 'lucide-react';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
 // thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
@@ -12,11 +12,17 @@ const DEFAULT_API = isExtension ? 'http://localhost:3001' : '/api';
 
 // Tên tool → nhãn thân thiện cho timeline
 const TOOL_LABELS = {
-  search_products: 'Tìm sản phẩm',
-  get_product_pricing: 'Lấy giá theo xưởng',
-  get_product_variants: 'Lấy SKU (màu/size)',
+  search_products: 'Search products',
+  compare_factories: 'Compare factories',
+  get_product_variants: 'Get SKUs (color/size)',
+  get_shipping: 'Get shipping',
+  create_order: 'Create order',
+  search_history: 'Search history',
 };
-const toolLabel = (n) => TOOL_LABELS[n] || n;
+// Fallback: "raw_name" → "Raw name" (đỡ trơ nếu có tool chưa map)
+const toolLabel = (n) =>
+  TOOL_LABELS[n] ||
+  (n ? n.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : n);
 
 // Custom markdown components (port từ source): link mở tab mới
 const MARKDOWN_COMPONENTS = {
@@ -36,7 +42,7 @@ export default function App() {
   const [password, setPassword] = useState('Password123');
   const [token, setToken] = useState('');
   const [sessionId, setSessionId] = useState('');
-  const [status, setStatus] = useState('Chưa kết nối');
+  const [status, setStatus] = useState('Not connected');
   const [connecting, setConnecting] = useState(false);
   const [messages, setMessages] = useState([]); // {role, text, steps, thinking}
   const [input, setInput] = useState('');
@@ -69,26 +75,26 @@ export default function App() {
 
   async function connect() {
     setConnecting(true);
-    setStatus('Đang kết nối...');
+    setStatus('Connecting...');
     try {
       let tk = await login();
       if (!tk) {
         await register();
         tk = await login();
       }
-      if (!tk) throw new Error('Không lấy được token');
+      if (!tk) throw new Error('Could not get token');
       setToken(tk);
       const res = await fetch(`${apiBase}/conversations`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tk}` },
       });
       const data = await res.json();
-      if (!data.sessionId) throw new Error('Không tạo được phiên');
+      if (!data.sessionId) throw new Error('Failed to create session');
       setSessionId(data.sessionId);
-      setStatus(`Đã kết nối · phiên ${data.sessionId.slice(0, 8)}…`);
+      setStatus(`Connected · session ${data.sessionId.slice(0, 8)}…`);
       setMessages([]);
     } catch (e) {
-      setStatus('Lỗi: ' + e.message);
+      setStatus('Error: ' + e.message);
     } finally {
       setConnecting(false);
     }
@@ -166,7 +172,7 @@ export default function App() {
         for (const block of blocks) handleEvent(block);
       }
     } catch (e) {
-      patchLast((a) => ({ ...a, text: a.text + `\n[lỗi kết nối: ${e.message}]` }));
+      patchLast((a) => ({ ...a, text: a.text + `\n[connection error: ${e.message}]` }));
     } finally {
       setBusy(false);
     }
@@ -210,13 +216,13 @@ export default function App() {
         return { ...a, steps };
       });
     } else if (event === 'error') {
-      patchLast((a) => ({ ...a, text: a.text + `\n\n⚠️ ${d.message || 'lỗi'}` }));
+      patchLast((a) => ({ ...a, text: a.text + `\n\n⚠️ ${d.message || 'error'}` }));
     }
   }
 
   async function openPrompt() {
     setShowPrompt(true);
-    setPromptText('Đang tải…');
+    setPromptText('Loading…');
     try {
       const r = await fetch(`${apiBase}/conversations/${sessionId}/system-prompt`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -262,7 +268,7 @@ export default function App() {
           {ready && (
             <button
               onClick={openPrompt}
-              title="Sửa system prompt"
+              title="Edit system prompt"
               className="text-[12.5px] text-stone-500 border border-stone-200 bg-white hover:bg-stone-50 px-3 py-[5px] rounded-full transition-colors"
             >
               ⚙ Prompt
@@ -277,7 +283,7 @@ export default function App() {
             <input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
-              placeholder="Backend URL (vd http://localhost:3001)"
+              placeholder="Backend URL (e.g. http://localhost:3001)"
               style={{ flexBasis: '100%' }}
             />
           )}
@@ -285,22 +291,22 @@ export default function App() {
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="mật khẩu"
+            placeholder="password"
             type="password"
           />
           <button onClick={connect} disabled={connecting}>
-            {connecting ? 'Đang kết nối…' : 'Kết nối'}
+            {connecting ? 'Connecting…' : 'Connect'}
           </button>
         </div>
       )}
 
       <div className="chat" ref={scrollRef} onScroll={onScroll}>
         {messages.length > 0 && (
-          <div className="text-center text-xs text-stone-400 font-medium mt-1 mb-1">Hôm nay</div>
+          <div className="text-center text-xs text-stone-400 font-medium mt-1 mb-1">Today</div>
         )}
         {messages.length === 0 && ready && (
           <div className="hint">
-            Thử hỏi: <em>"Tôi muốn bán Hoodie Gildan cho thị trường Mỹ, xưởng nào giá vốn rẻ nhất?"</em>
+            Try asking: <em>"I want to sell Gildan hoodies for the US market — which factory has the cheapest base cost?"</em>
           </div>
         )}
         {messages.map((m, i) =>
@@ -335,12 +341,12 @@ export default function App() {
                 send();
               }
             }}
-            placeholder={ready ? 'Nhắn cho agent…' : 'Kết nối trước khi chat'}
+            placeholder={ready ? 'Message the agent…' : 'Connect before chatting'}
             disabled={!ready || busy}
             rows={1}
           />
           <div className="composer-row">
-            <button className="composer-plus" type="button" title="Thêm" disabled>
+            <button className="composer-plus" type="button" title="Add" disabled>
               <Plus size={18} strokeWidth={2} />
             </button>
             <span className="composer-pill">🍔 BurgerPrints Agent</span>
@@ -376,7 +382,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between font-semibold text-stone-700 text-[15px]">
-                <span>⚙ System prompt của agent</span>
+                <span>⚙ Agent system prompt</span>
                 <button
                   className="text-stone-400 hover:text-stone-600 text-base"
                   onClick={() => setShowPrompt(false)}
@@ -385,13 +391,13 @@ export default function App() {
                 </button>
               </div>
               <p className="text-[12.5px] text-stone-400 mt-1.5 mb-3">
-                Chỉnh cách agent hành xử cho phiên này. Để trống / Khôi phục mặc định để dùng prompt gốc.
+                Customize how the agent behaves for this session. Leave empty / Reset to default to use the original prompt.
               </p>
               <div className="flex gap-4 flex-1 min-h-0">
                 {tools.length > 0 && (
                   <div className="w-[38%] flex flex-col rounded-xl border border-stone-200 bg-stone-50 overflow-hidden">
                     <div className="text-[12px] font-semibold text-stone-500 px-3.5 pt-3 pb-2 flex-none">
-                      🛠️ Tool agent có thể dùng
+                      🛠️ Tools the agent can use
                     </div>
                     <div className="flex flex-col gap-2.5 px-3.5 pb-3 overflow-y-auto">
                       {tools.map((t) => (
@@ -423,21 +429,21 @@ export default function App() {
                   onClick={() => savePrompt(true)}
                   disabled={promptBusy}
                 >
-                  Khôi phục mặc định
+                  Reset to default
                 </button>
                 <div className="flex-1" />
                 <button
                   className="border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 text-[13.5px] px-3.5 py-2 rounded-[10px] transition-colors"
                   onClick={() => setShowPrompt(false)}
                 >
-                  Huỷ
+                  Cancel
                 </button>
                 <button
                   className="bg-stone-800 hover:bg-stone-700 text-white text-[13.5px] font-semibold px-[18px] py-2 rounded-[10px] transition-colors disabled:bg-stone-300"
                   onClick={() => savePrompt(false)}
                   disabled={promptBusy}
                 >
-                  {promptBusy ? 'Đang lưu…' : 'Lưu'}
+                  {promptBusy ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </motion.div>
@@ -484,7 +490,7 @@ function AssistantMessage({ msg, streaming }) {
   }, [msg.steps, msg.thinking]);
 
   const runningStep = msg.steps.find((s) => s.status === 'running');
-  const thinkingLabel = runningStep ? `Đang ${toolLabel(runningStep.name).toLowerCase()}` : 'Đang suy nghĩ';
+  const thinkingLabel = runningStep ? `${toolLabel(runningStep.name)}…` : 'Thinking';
 
   return (
     <div className="group flex flex-col gap-1.5 max-w-[92%]">
@@ -520,39 +526,38 @@ function Trace({ entries, streaming }) {
   const title = streaming
     ? running
       ? running.label
-      : 'Đang suy nghĩ'
+      : 'Thinking'
     : entries.some((e) => e.kind === 'think')
-      ? 'Đã suy nghĩ'
-      : `Đã tra cứu catalog · ${entries.length} bước`;
+      ? 'Thought'
+      : `Searched catalog · ${entries.length} step${entries.length > 1 ? 's' : ''}`;
 
   return (
     <div className="text-[15px] leading-relaxed">
       <button
         type="button"
         onClick={() => setUserOpen((v) => (v == null ? !open : !v))}
-        className="group cursor-pointer flex items-center gap-1.5 w-full px-0.5 py-0.5 rounded text-left text-stone-400 hover:text-stone-500 transition-colors"
+        className="group cursor-pointer inline-flex items-center gap-1.5 px-1 py-0.5 rounded text-stone-400 hover:text-stone-500 transition-colors max-w-full"
         aria-expanded={open}
       >
-        <span className="flex-1 min-w-0 relative h-[24px] overflow-hidden block">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={title}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className={
-                'block absolute inset-0 truncate text-[14px] leading-[24px] font-normal ' +
-                (streaming ? 'shimmer' : '')
-              }
-            >
-              {title}
-            </motion.span>
-          </AnimatePresence>
-        </span>
+        <Sparkles className="w-[14px] h-[14px] flex-none" strokeWidth={1.75} />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={title}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className={
+              'truncate max-w-[440px] text-[14px] leading-[24px] font-normal ' +
+              (streaming ? 'shimmer' : '')
+            }
+          >
+            {title}
+          </motion.span>
+        </AnimatePresence>
         <ChevronDown
           className={
-            'w-4 h-4 flex-shrink-0 text-stone-300 group-hover:text-stone-400 transition-transform duration-200 ' +
+            'w-4 h-4 flex-none text-stone-300 group-hover:text-stone-400 transition-transform duration-200 ' +
             (!open ? '-rotate-90' : '')
           }
           strokeWidth={2}
@@ -590,10 +595,10 @@ function Trace({ entries, streaming }) {
                           <span className="ml-1.5 text-stone-400">×{e.calls}</span>
                         )}
                         {e.kind === 'tool' && e.count != null && (
-                          <span className="ml-2 text-[13px] text-stone-400">{e.count} kết quả</span>
+                          <span className="ml-2 text-[13px] text-stone-400">{e.count} results</span>
                         )}
                         {e.kind === 'tool' && e.status === 'running' && (
-                          <span className="ml-2 text-[13px] text-stone-400">đang chạy…</span>
+                          <span className="ml-2 text-[13px] text-stone-400">running…</span>
                         )}
                       </div>
                       {e.results?.length > 0 && (
@@ -612,7 +617,7 @@ function Trace({ entries, streaming }) {
                           ))}
                           {e.count > e.results.length && (
                             <div className="px-3 py-1.5 text-[12px] text-stone-400">
-                              +{e.count - e.results.length} nữa
+                              +{e.count - e.results.length} more
                             </div>
                           )}
                         </div>
@@ -630,7 +635,7 @@ function Trace({ entries, streaming }) {
                   >
                     <CircleCheck className="w-[19px] h-[19px] text-stone-400" strokeWidth={1.75} />
                   </span>
-                  <span>Hoàn tất</span>
+                  <span>Done</span>
                 </div>
               )}
             </div>
