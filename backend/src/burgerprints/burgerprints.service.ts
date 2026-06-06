@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import MiniSearch from 'minisearch';
 import { firstValueFrom } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
 import { CatalogV1Service } from '../catalog-v1/catalog-v1.service';
@@ -70,22 +71,36 @@ export class BurgerPrintsService {
         : null;
     const limit = Math.min(params.limit ?? 15, 25);
 
-    // B1: lọc theo category (tên) + market từ catalog đã cache (rẻ)
-    const matched = all
-      .map((p) => ({
-        short_code: p.short_code,
-        name: p.name,
-        market: this.marketOf(
-          p.short_code,
-          this.parseHtmlDesc(p.html_desc ?? '').location,
-        ),
-        html_desc: p.html_desc,
-      }))
-      .filter((p) => {
-        const kwOk = this.matchKeyword(p.name ?? '', kw);
-        const marketOk = !market || p.market === market;
-        return kwOk && marketOk;
+    // B1: lọc theo category (tên) + market.
+    // Khớp tên bằng MiniSearch (BM25): tokenize → bỏ ký tự đặc biệt (+,|), fuzzy/prefix,
+    // và XẾP HẠNG theo độ liên quan (tên cụ thể nổi lên đầu, không bị chìm theo giá).
+    const mapped = all.map((p) => ({
+      short_code: p.short_code,
+      name: p.name,
+      market: this.marketOf(
+        p.short_code,
+        this.parseHtmlDesc(p.html_desc ?? '').location,
+      ),
+      html_desc: p.html_desc,
+    }));
+
+    let candidates = mapped;
+    if (kw) {
+      const mini = new MiniSearch<{ id: string; name: string }>({
+        fields: ['name'],
+        storeFields: ['id'],
+        tokenize: (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [],
+        searchOptions: { fuzzy: 0.2, prefix: true, combineWith: 'AND' },
       });
+      mini.addAll(mapped.map((p) => ({ id: p.short_code, name: p.name })));
+      const ranked = mini.search(kw); // theo điểm BM25 giảm dần
+      const byCode = new Map(mapped.map((p) => [p.short_code, p]));
+      candidates = ranked
+        .map((r: any) => byCode.get(r.id))
+        .filter(Boolean) as typeof mapped;
+    }
+
+    const matched = candidates.filter((p) => !market || p.market === market);
 
     // B2: enrich GIÁ (base cost) bằng product detail — fetch song song, có cache.
     // Cap số sản phẩm enrich để giữ độ trễ hợp lý.
@@ -519,22 +534,6 @@ export class BurgerPrintsService {
     if (loc.includes('euro')) return 'EU';
     if (loc.includes('china')) return 'CN';
     return 'OTHER';
-  }
-
-  /**
-   * Khớp từ khoá kiểu token: chuẩn hoá (lowercase + bỏ ký tự đặc biệt như + | -),
-   * yêu cầu MỌI token của keyword xuất hiện (substring) trong tên sản phẩm.
-   * → "bella canvas 3001" khớp "Bella + Canvas 3001"; "sweat" khớp "Sweatshirt".
-   */
-  private matchKeyword(name: string, kw: string): boolean {
-    if (!kw) return true;
-    const norm = (x: string) =>
-      x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-    const nameN = norm(name);
-    return norm(kw)
-      .split(' ')
-      .filter(Boolean)
-      .every((t) => nameN.includes(t));
   }
 
   /** Chuẩn hoá tham số market người dùng nhập → mã chuẩn. */
