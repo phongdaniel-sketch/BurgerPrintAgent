@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BurgerPrintsService } from '../burgerprints/burgerprints.service';
 import { MemoryService } from '../memory/memory.service';
+import { AgentLogger } from '../logging/agent-logger.service';
 import { AgentRuntime } from './agent-runtime.port';
 import { AgentChunk, AgentRunInput } from './agent.types';
 
@@ -35,9 +36,17 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     private readonly config: ConfigService,
     private readonly burgerprints: BurgerPrintsService,
     private readonly memory: MemoryService,
+    private readonly agentLog: AgentLogger,
   ) {}
 
   async *run(input: AgentRunInput): AsyncIterable<AgentChunk> {
+    const startedAt = Date.now();
+    let finalText = '';
+    void this.agentLog.turnStart(input.sessionId, {
+      message: input.message,
+      history_turns: input.history.length,
+      custom_prompt: !!(input.systemPrompt && input.systemPrompt.trim()),
+    });
     let Agent: any;
     let getModel: any;
     try {
@@ -114,6 +123,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         case 'message_update': {
           const e = event.assistantMessageEvent;
           if (e?.type === 'text_delta' && e.delta) {
+            finalText += e.delta;
             push({ type: 'token', text: e.delta });
           } else if (e?.type === 'thinking_delta' && e.delta) {
             push({ type: 'thinking', text: e.delta });
@@ -146,6 +156,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         }
         case 'agent_end': {
           const errorMessage = agent.state?.errorMessage;
+          void this.agentLog.turnEnd(input.sessionId, {
+            reply: finalText,
+            finishReason: errorMessage ? 'error' : 'stop',
+            error: errorMessage ?? null,
+            duration_ms: Date.now() - startedAt,
+          });
           if (errorMessage) {
             push({
               type: 'error',
@@ -167,6 +183,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
 
     // Kích hoạt vòng lặp agent (không await ở đây để vừa chạy vừa tiêu thụ event).
     agent.prompt(input.message).catch((err: Error) => {
+      void this.agentLog.turnEnd(input.sessionId, {
+        reply: finalText,
+        finishReason: 'error',
+        error: err.message,
+        duration_ms: Date.now() - startedAt,
+      });
       push({ type: 'error', code: 'AGENT_PROMPT_ERROR', message: err.message });
       done = true;
       if (wake) {
@@ -286,6 +308,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       parameters: { type: 'object', properties, required },
       execute: async (_id: string, params: any) => {
         const data = await run(params ?? {});
+        void this.agentLog.tool(input.sessionId, name, params ?? {}, data);
         return {
           content: [{ type: 'text', text: JSON.stringify(data) }],
           details: data,
@@ -296,22 +319,22 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     return [
       tool(
         'search_products',
-        'Tìm sản phẩm theo loại/ĐẶC ĐIỂM + thị trường + giá vốn tối đa. category khớp full-text ' +
-          'cả TÊN lẫn mô tả (chất liệu vd "cotton"/"ring-spun", kỹ thuật in "DTG"/"DTF", đặc điểm ' +
-          '"long sleeve"/"fleece"...). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu, sort theo giá.',
+        'Find products by type/FEATURE + market + max base cost. category is full-text over ' +
+          'name + description (material e.g. "cotton"/"ring-spun", print technique "DTG"/"DTF", features ' +
+          '"long sleeve"/"fleece"...). Returns base_cost (lowest), cheapest factory, color count, sorted by price.',
         {
           category: {
             type: 'string',
             description:
-              'Loại sản phẩm, vd "t-shirt", "hoodie", "tank top", "sweatshirt"',
+              'Product type, e.g. "t-shirt", "hoodie", "tank top", "sweatshirt"',
           },
           market: {
             type: 'string',
-            description: 'Thị trường: US | EU | CN | AU (tùy chọn)',
+            description: 'Market: US | EU | CN | AU (optional)',
           },
           max_base_cost: {
             type: 'number',
-            description: 'Giá vốn tối đa (USD) để lọc, vd 8 (tùy chọn)',
+            description: 'Max base cost (USD) to filter, e.g. 8 (optional)',
           },
         },
         [],
@@ -324,12 +347,13 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'compare_factories',
-        'So sánh TẤT CẢ xưởng (partner_name) của MỘT sản phẩm: base cost min/max mỗi xưởng + sizes/màu. ' +
-          'Dùng sau khi đã chốt 1 loại sản phẩm cụ thể (UC-02 bước 2) hoặc để tính margin.',
+        'Compare ALL factories (partner_name) of ONE product: min/max base cost per factory + sizes/colors. ' +
+          'Use after a specific product is chosen (UC-02 step 2) or for margin.',
         {
           short_code: {
             type: 'string',
-            description: 'Mã sản phẩm, vd "USG5000" (lấy từ search_products)',
+            description:
+              'Product short_code, e.g. "USG5000" (from search_products)',
           },
         },
         ['short_code'],
@@ -337,12 +361,15 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'get_product_variants',
-        'Liệt kê SKU cụ thể (sku, màu, size, giá, xưởng) của một sản phẩm, lọc theo màu/size/xưởng. Dùng khi seller muốn màu/size cụ thể hoặc chuẩn bị đặt hàng.',
+        'List concrete SKUs (sku, color, size, price, factory, in_stock) of a product, filtered by color/size/factory. Use for a specific color/size or before ordering.',
         {
-          short_code: { type: 'string', description: 'Mã sản phẩm' },
-          color: { type: 'string', description: 'Lọc theo màu (tùy chọn)' },
-          size: { type: 'string', description: 'Lọc theo size (tùy chọn)' },
-          factory: { type: 'string', description: 'Lọc theo xưởng (tùy chọn)' },
+          short_code: { type: 'string', description: 'Product short_code' },
+          color: { type: 'string', description: 'Filter by color (optional)' },
+          size: { type: 'string', description: 'Filter by size (optional)' },
+          factory: {
+            type: 'string',
+            description: 'Filter by factory (optional)',
+          },
         },
         ['short_code'],
         (p) =>
@@ -354,12 +381,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'create_order',
-        'Tạo đơn fulfillment (UC-06, bonus). MẶC ĐỊNH sandbox=true (không phát sinh đơn thật). ' +
-          'CHỈ gọi sau khi seller đã xác nhận SKU + số lượng + địa chỉ ship. Đặt sandbox=false chỉ khi seller xác nhận đặt thật.',
+        'Create a fulfillment order (bonus). Default sandbox=true (no real order). ' +
+          'ONLY call after the seller confirms SKU + quantity + shipping address. Set sandbox=false only when the seller confirms a real order.',
         {
           shipping: {
             type: 'object',
-            description: 'Thông tin nhận hàng',
+            description: 'Shipping recipient info',
             properties: {
               name: { type: 'string' },
               address1: { type: 'string' },
@@ -367,7 +394,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
               city: { type: 'string' },
               state: { type: 'string' },
               zip: { type: 'string' },
-              country: { type: 'string', description: 'Mã quốc gia, vd US' },
+              country: { type: 'string', description: 'Country code, e.g. US' },
               email: { type: 'string' },
               phone: { type: 'string' },
             },
@@ -375,7 +402,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
           items: {
             type: 'array',
-            description: 'Danh sách SKU + số lượng',
+            description: 'List of SKUs + quantities',
             items: {
               type: 'object',
               properties: {
@@ -389,7 +416,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
           sandbox: {
             type: 'boolean',
-            description: 'true = đơn thử (mặc định true)',
+            description: 'true = test order (default true)',
           },
         },
         ['shipping', 'items'],
@@ -402,11 +429,12 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'search_history',
-        'Tìm trong LỊCH SỬ hội thoại (BM25) khi seller nhắc tới điều đã nói trước đó mà KHÔNG có trong ngữ cảnh hiện tại (chỉ N lượt gần nhất được đưa vào). Trả các lượt liên quan nhất.',
+        'Search the FULL conversation history (BM25) when the seller refers to something said earlier that is NOT in the current context (only the last N turns are included). Returns the most relevant past turns.',
         {
           query: {
             type: 'string',
-            description: 'Từ khoá/nội dung cần tìm lại trong hội thoại trước',
+            description:
+              'Keyword/content to find again in earlier conversation',
           },
         },
         ['query'],
@@ -414,30 +442,86 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
       tool(
         'get_shipping',
-        'Phí + thời gian ship của MỘT xưởng tới từng nước (carrier, giá sp đầu/sp thêm). ' +
-          'Lấy partner_id từ compare_factories. Dùng để so "xưởng nào ship nước X rẻ/nhanh nhất" ' +
-          'và tính margin ĐỦ cả phí ship.',
+        'Shipping fee + time of ONE factory to each country (carrier, first/additional item price). ' +
+          'Get partner_id from compare_factories. Use to compare "which factory ships cheapest/fastest to country X" ' +
+          'and to compute margin INCLUDING shipping.',
         {
           short_code: {
             type: 'string',
-            description: 'Mã sản phẩm, vd "EUG2400"',
+            description: 'Product short_code, e.g. "EUG2400"',
           },
           partner_id: {
             type: 'string',
             description:
-              'ID xưởng (lấy từ compare_factories.factories[].partner_id)',
+              'Factory id (from compare_factories.factories[].partner_id)',
           },
           country: {
             type: 'string',
             description:
-              'Lọc theo nước (tên hoặc mã, vd "US"/"Germany") — tùy chọn',
+              'Filter by country (name or code, e.g. "US"/"Germany") — optional',
           },
         },
         ['short_code', 'partner_id'],
         (p) =>
           this.burgerprints.getShipping(p.short_code, p.partner_id, p.country),
       ),
+      tool(
+        'calculate_margin',
+        'Compute margin PRECISELY for one or more products (deterministic). Do NOT do the math yourself. ' +
+          'Margin% = (sell − base − shipping)/sell × 100. Pass shipping_cost ONLY when you have a real number ' +
+          'from get_shipping; omit it → base-only margin (excludes shipping).',
+        {
+          items: {
+            type: 'array',
+            description: 'List of products to compute',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Product name/code' },
+                sell_price: {
+                  type: 'number',
+                  description: 'Intended sell price (USD)',
+                },
+                base_cost: { type: 'number', description: 'Base cost (USD)' },
+                shipping_cost: {
+                  type: 'number',
+                  description:
+                    'Real shipping cost from get_shipping (optional)',
+                },
+              },
+              required: ['sell_price', 'base_cost'],
+            },
+          },
+        },
+        ['items'],
+        (p) => Promise.resolve(this.calcMargin(p.items)),
+      ),
     ];
+  }
+
+  /** Tính margin deterministic (server-side) — tránh LLM làm toán sai. */
+  private calcMargin(items: any[]): unknown {
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      note: 'shipping_cost empty → base-only margin (excludes shipping). Get real shipping via get_shipping and pass it in for full margin.',
+      results: (Array.isArray(items) ? items : []).map((it) => {
+        const sell = Number(it.sell_price);
+        const base = Number(it.base_cost);
+        const ship = Number(it.shipping_cost) || 0;
+        const total = base + ship;
+        const profit = sell - total;
+        return {
+          label: it.label ?? null,
+          sell_price: sell,
+          base_cost: base,
+          shipping_cost: ship || null,
+          total_cost: round(total),
+          profit: round(profit),
+          margin_percent:
+            sell > 0 ? Math.round((profit / sell) * 1000) / 10 : null,
+        };
+      }),
+    };
   }
 }
 
@@ -457,6 +541,7 @@ export function defaultSystemPrompt(): string {
     `5. search_history(query) → search the FULL conversation history (BM25). Only the last few turns are in your context; if the seller refers to something said earlier that you don't see, call search_history to retrieve it instead of guessing or saying you forgot.`,
     `6. get_shipping(short_code, partner_id, country?) → shipping fee + time per country for ONE factory (partner_id from compare_factories). Use to answer "which factory ships cheapest/fastest to country X" and to compute margin INCLUDING shipping.`,
     ``,
+    `SHORT_CODE RULE (critical): compare_factories / get_product_variants / get_shipping need a short_code. You MUST obtain short_code from a search_products result — NEVER invent or guess it (e.g. do not assume "EU3001" or "USBC3001"). If the seller names a product but you don't have its exact short_code, call search_products FIRST to resolve it, then use the returned short_code. A wrong short_code returns a 400 error.`,
     `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
     `KEY DATA FACTS:`,
@@ -467,7 +552,7 @@ export function defaultSystemPrompt(): string {
     `- Shipping fee/time by destination ARE available via get_shipping (per factory, per country); compare_factories returns processing_time per factory. Factory rating is NOT available — never invent it.`,
     `- TOTAL cost to a destination = base cost (compare_factories) + shipping first_item_price (get_shipping). Use this for accurate margin and "cheapest/fastest to country X".`,
     ``,
-    `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute it then call search_products(max_base_cost=that).`,
+    `MARGIN: To compute margin you MUST call calculate_margin (do NOT do the arithmetic yourself — it has been wrong). Pass an items array with ONE entry PER product you are presenting, where base_cost is THAT product's real base_cost from the search_products result (e.g. 5.10, 7.25, 7.40) — NOT a budget cap/threshold/rounded number, and not a single placeholder. shipping_cost: include ONLY if you got a real number from get_shipping; otherwise omit it → base-only margin, state the caveat. Never assume/guess a shipping number. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute that and call search_products(max_base_cost=that), then still call calculate_margin with each product's real base_cost to show the actual margin.`,
     ``,
     `BEHAVIOR:`,
     `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
@@ -482,26 +567,30 @@ export function defaultSystemPrompt(): string {
 export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'search_products',
-    desc: 'Tìm sản phẩm theo loại/đặc điểm + thị trường + giá vốn tối đa. category khớp full-text cả tên lẫn mô tả (chất liệu "cotton"/"ring-spun", kỹ thuật in DTG/DTF, đặc điểm "long sleeve"/"fleece"). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu — sort theo giá.',
+    desc: 'Find products by type/feature + market + max base cost. category is full-text over name + description (material "cotton"/"ring-spun", print technique DTG/DTF, features "long sleeve"/"fleece"). Returns base_cost (lowest), cheapest factory, color count — sorted by price.',
   },
   {
     name: 'compare_factories',
-    desc: 'So sánh TẤT CẢ xưởng của MỘT sản phẩm (short_code): base cost min/max mỗi xưởng + sizes/màu. Dùng sau khi đã chốt 1 sản phẩm cụ thể, hoặc để tính margin.',
+    desc: 'Compare ALL factories of ONE product (short_code): min/max base cost per factory + sizes/colors. Use after a specific product is chosen, or for margin.',
   },
   {
     name: 'get_product_variants',
-    desc: 'Liệt kê SKU cụ thể của một sản phẩm (màu/size/giá/xưởng), kèm catalog_sku (mã đặt đơn) và in_stock. Dùng khi cần màu/size cụ thể hoặc chuẩn bị đặt hàng.',
+    desc: 'List concrete SKUs of a product (color/size/price/factory), with catalog_sku (order code) and in_stock. Use for a specific color/size or before ordering.',
   },
   {
     name: 'create_order',
-    desc: 'Tạo đơn fulfillment (shipping + items). Mặc định sandbox=true (đơn thử). Chỉ gọi sau khi seller xác nhận SKU + số lượng + địa chỉ.',
+    desc: 'Create a fulfillment order (shipping + items). Default sandbox=true (test order). Only call after the seller confirms SKU + quantity + address.',
   },
   {
     name: 'search_history',
-    desc: 'Tìm lại trong lịch sử hội thoại (BM25) khi seller nhắc tới điều đã nói trước đó mà không còn trong ngữ cảnh hiện tại (chỉ N lượt gần nhất được nạp).',
+    desc: 'Search past conversation history (BM25) when the seller refers to something said earlier that is no longer in the current context (only the last N turns are loaded).',
   },
   {
     name: 'get_shipping',
-    desc: 'Phí + thời gian ship của 1 xưởng (partner_id từ compare_factories) tới từng nước (carrier, giá sp đầu/thêm). Dùng cho "ship nước X rẻ/nhanh nhất" và tính margin đủ ship.',
+    desc: 'Shipping fee + time of one factory (partner_id from compare_factories) to each country (carrier, first/additional item price). Use for "cheapest/fastest to country X" and margin including shipping.',
+  },
+  {
+    name: 'calculate_margin',
+    desc: 'Compute margin precisely (deterministic) for one or more products: (sell − base − shipping)/sell × 100. The agent MUST use this tool instead of mental math.',
   },
 ];
