@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, CircleCheck, Clock, Globe } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleCheck, Clock, Globe, Plus } from 'lucide-react';
 
 // Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
 // thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
@@ -42,10 +42,19 @@ export default function App() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef(null);
+  const taRef = useRef(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-resize textarea theo nội dung (cap 160px)
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }, [input]);
 
   async function connect() {
     setConnecting(true);
@@ -220,6 +229,9 @@ export default function App() {
       )}
 
       <div className="chat" ref={scrollRef}>
+        {messages.length > 0 && (
+          <div className="text-center text-xs text-stone-400 font-medium mt-1 mb-1">Hôm nay</div>
+        )}
         {messages.length === 0 && ready && (
           <div className="hint">
             Thử hỏi: <em>"Tôi muốn bán Hoodie Gildan cho thị trường Mỹ, xưởng nào giá vốn rẻ nhất?"</em>
@@ -228,7 +240,10 @@ export default function App() {
         {messages.map((m, i) =>
           m.role === 'user' ? (
             <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-3xl bg-stone-100 px-5 py-3 text-sm text-stone-900 whitespace-pre-wrap break-words">
+              <div
+                className="max-w-[82%] rounded-[22px] px-[18px] py-[11px] text-[14.5px] whitespace-pre-wrap break-words"
+                style={{ background: '#eceae6', color: '#2b2a28' }}
+              >
                 {m.text}
               </div>
             </div>
@@ -243,22 +258,37 @@ export default function App() {
       </div>
 
       <div className="composer">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder={ready ? 'Nhập câu hỏi… (Enter để gửi)' : 'Kết nối trước khi chat'}
-          disabled={!ready || busy}
-          rows={2}
-        />
-        <button onClick={send} disabled={!ready || busy || !input.trim()}>
-          {busy ? '…' : 'Gửi'}
-        </button>
+        <div className="composer-box">
+          <textarea
+            ref={taRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder={ready ? 'Nhắn cho agent…' : 'Kết nối trước khi chat'}
+            disabled={!ready || busy}
+            rows={1}
+          />
+          <div className="composer-row">
+            <button className="composer-plus" type="button" title="Thêm" disabled>
+              <Plus size={18} strokeWidth={2} />
+            </button>
+            <span className="composer-pill">🍔 BurgerPrints Agent</span>
+            <div className="composer-spacer" />
+            <button
+              className="composer-send"
+              onClick={send}
+              disabled={!ready || busy || !input.trim()}
+              title="Gửi"
+            >
+              <ArrowUp size={18} strokeWidth={2.4} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

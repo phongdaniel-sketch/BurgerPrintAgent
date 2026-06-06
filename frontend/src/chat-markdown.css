@@ -85,27 +85,33 @@
 .chat-markdown ol { list-style-type: decimal; }
 .chat-markdown li { margin: 0.18em 0; }
 
-/* Tables */
+/* Tables — tông peach ấm (kiểu Copilot) */
 .chat-markdown table {
   width: 100%;
   margin: 0.92em 0;
-  border-collapse: collapse;
-  border-radius: 10px;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.34);
+  border: 1px solid #ece1d0;
   font-size: 13px;
 }
 .chat-markdown th,
 .chat-markdown td {
-  padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
+  padding: 9px 12px;
+  border-bottom: 1px solid #f0e9dd;
+  border-right: 1px solid #f0e9dd;
   text-align: left;
 }
+.chat-markdown th:last-child,
+.chat-markdown td:last-child { border-right: none; }
+.chat-markdown tr:last-child td { border-bottom: none; }
 .chat-markdown th {
-  font-weight: 620;
-  color: #0f172ae6;
-  background: #e2e8f0c7;
+  font-weight: 640;
+  color: #5b4a36;
+  background: #faf0e1;
 }
+.chat-markdown tbody tr:nth-child(even) td { background: #fcfaf6; }
 
 /* Inline styles */
 .chat-markdown strong,
