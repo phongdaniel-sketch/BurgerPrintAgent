@@ -6,6 +6,8 @@ const BACKEND = process.env.BACKEND_URL || 'http://localhost:3001';
 
 export default defineConfig({
   plugins: [react()],
+  // base tương đối để chạy được cả khi load như Chrome extension (chrome-extension://id/index.html)
+  base: './',
   server: {
     port: 5173,
     proxy: {

@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "BurgerPrints Agent",
+  "version": "0.1.0",
+  "description": "Chat với AI agent tư vấn POD catalog BurgerPrints — mở ở Side Panel.",
+  "action": {
+    "default_title": "Mở BurgerPrints Agent"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["sidePanel"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ]
+}

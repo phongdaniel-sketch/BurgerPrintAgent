@@ -4,7 +4,11 @@ import remarkGfm from 'remark-gfm';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, CircleCheck, Clock, Globe } from 'lucide-react';
 
-const API = '/api'; // Vite proxy → backend
+// Web (Vite dev) dùng proxy '/api'. Extension chạy origin chrome-extension:// nên gọi
+// thẳng backend (mặc định cổng 3001 — đổi trong ô "Backend URL" nếu cần).
+const isExtension =
+  typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
+const DEFAULT_API = isExtension ? 'http://localhost:3001' : '/api';
 
 // Tên tool → nhãn thân thiện cho timeline
 const TOOL_LABELS = {
@@ -27,6 +31,7 @@ const MARKDOWN_COMPONENTS = {
 };
 
 export default function App() {
+  const [apiBase, setApiBase] = useState(DEFAULT_API);
   const [email, setEmail] = useState('seller@test.com');
   const [password, setPassword] = useState('Password123');
   const [token, setToken] = useState('');
@@ -53,7 +58,7 @@ export default function App() {
       }
       if (!tk) throw new Error('Không lấy được token');
       setToken(tk);
-      const res = await fetch(`${API}/conversations`, {
+      const res = await fetch(`${apiBase}/conversations`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tk}` },
       });
@@ -71,7 +76,7 @@ export default function App() {
 
   async function login() {
     try {
-      const r = await fetch(`${API}/auth/login`, {
+      const r = await fetch(`${apiBase}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -86,7 +91,7 @@ export default function App() {
 
   async function register() {
     try {
-      await fetch(`${API}/auth/register`, {
+      await fetch(`${apiBase}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -122,7 +127,7 @@ export default function App() {
     ]);
 
     try {
-      const url = `${API}/conversations/${sessionId}/stream?message=${encodeURIComponent(msg)}`;
+      const url = `${apiBase}/conversations/${sessionId}/stream?message=${encodeURIComponent(msg)}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
       });
@@ -193,6 +198,14 @@ export default function App() {
 
       {!ready && (
         <div className="connect">
+          {isExtension && (
+            <input
+              value={apiBase}
+              onChange={(e) => setApiBase(e.target.value)}
+              placeholder="Backend URL (vd http://localhost:3001)"
+              style={{ flexBasis: '100%' }}
+            />
+          )}
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email" />
           <input
             value={password}
