@@ -139,7 +139,7 @@ export class BurgerPrintsService {
       const meta = this.parseHtmlDesc(d.html_desc ?? '');
       return {
         short_code: p.short_code,
-        name: p.name,
+        name: cleanName(p.name),
         market: p.market,
         base_cost: Number.isFinite(min) ? min : null,
         cheapest_factory: factory,
@@ -240,7 +240,7 @@ export class BurgerPrintsService {
     const meta = this.parseHtmlDesc(d.html_desc ?? '');
     return {
       short_code: d.short_code,
-      name: d.name,
+      name: cleanName(d.name),
       market: this.marketOf(d.short_code, meta.location),
       printing: meta.printing,
       location: meta.location,
@@ -294,7 +294,7 @@ export class BurgerPrintsService {
 
     return {
       short_code: d.short_code,
-      name: d.name,
+      name: cleanName(d.name),
       total_matched: matched.length,
       out_of_stock_count: matched.filter((m) => !m.in_stock).length,
       note: 'Dùng catalog_sku (KHÔNG phải sku) khi create_order. in_stock=false là SKU hết hàng — không gợi ý/đặt.',
@@ -565,6 +565,14 @@ export class BurgerPrintsService {
     const hash = createHash('sha1').update(path).digest('hex').slice(0, 16);
     return `catalog:${hash}`;
   }
+}
+
+/**
+ * Tên sản phẩm BurgerPrints có dạng "Type | Model" (vd "Unisex T-Shirt | Gildan 5000").
+ * Dấu `|` làm VỠ cột markdown table khi LLM in ra → thay bằng "·".
+ */
+function cleanName(name: string): string {
+  return (name ?? '').replace(/\s*\|\s*/g, ' · ').trim();
 }
 
 /** Strip HTML tags → text thuần để index full-text (BM25). */
