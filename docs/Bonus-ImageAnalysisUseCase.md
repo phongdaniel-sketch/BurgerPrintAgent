@@ -27,36 +27,38 @@ sequenceDiagram
     participant API as BurgerPrints API v2.0
     
     Seller->>Agent: Tải ảnh thiết kế lên + Câu hỏi tư vấn
-    Note over Agent: Chạy Vision Model để nhận diện:<br/>1. Loại sản phẩm (Hoodie/T-shirt...)<br/>2. Các mặt in (Front / Back / Sleeve / Kết hợp)
-    Agent-->>Seller: Phản hồi nhận diện ("Phát hiện Hoodie, in trước + sau + tay áo...")
+    Note over Agent: Chạy Vision Model để nhận diện:<br/>1. Loại sản phẩm (T-shirt/Hoodie...)<br/>2. Màu sắc (Black/White...)<br/>3. Các mặt in (Front / Back / Sleeve / Kết hợp)
+    Agent-->>Seller: Xác nhận nhận diện ("Phát hiện T-shirt màu Đen, in 2 mặt...") & Đề xuất dòng áo (Gildan 5000, Gildan 6400...)
+    
+    Seller->>Agent: Chọn dòng áo cụ thể (ví dụ: Gildan 5000)
     
     rect rgb(240, 248, 255)
-        Note over Agent: Tìm kiếm Catalog & Variations
-        Agent->>API: GET /v2/product (Tìm các base Hoodie)
-        API-->>Agent: Trả về danh sách base
-        Agent->>API: GET /v2/product/{short_code} (Lấy chi tiết variants của xưởng)
-        API-->>Agent: Trả về danh sách SKU + Partner + Price + Addition Price
+        Note over Agent: Tìm kiếm & Lọc Variants theo màu
+        Agent->>API: GET /v2/product/{short_code} (Lấy chi tiết variants)
+        API-->>Agent: Trả về danh sách variants (nhiều xưởng)
+        Note over Agent: Lọc chỉ lấy các xưởng có sẵn màu Đen (Black)
     end
     
-    Note over Agent: Tính toán và so sánh:<br/>- Tổng giá base (Price + Addition Price nếu in 2 mặt)<br/>- Lọc theo location xưởng
-    Agent-->>Seller: Đưa ra bảng so sánh xưởng & đề xuất tối ưu nhất
+    Note over Agent: Tính toán và so sánh:<br/>- Tổng giá base cho màu Đen tại các xưởng<br/>- Lọc theo location xưởng
+    Agent-->>Seller: Đưa ra bảng so sánh xưởng có màu Đen & đề xuất tối ưu nhất
 ```
 
 ### Chi tiết các bước:
-1. **Tác nhân gửi yêu cầu:** Seller tải lên một file ảnh thiết kế (ví dụ: mẫu mockup áo Hoodie màu đen có in cả mặt trước và mặt sau) kèm tin nhắn: *"Tư vấn xưởng in mẫu này giúp mình."*
+1. **Tác nhân gửi yêu cầu:** Seller tải lên một file ảnh thiết kế (ví dụ: mẫu mockup áo T-shirt màu đen có in mặt trước và mặt sau) kèm tin nhắn: *"Tư vấn xưởng in mẫu này giúp mình."*
 2. **Phân tích hình ảnh:** Agent kích hoạt phân tích đa phương thức (Vision) từ ảnh đầu vào:
-   * **Phát hiện loại sản phẩm (Category Detection):** Nhận diện mẫu là "Hoodie" (Áo nỉ có mũ).
-   * **Phát hiện vị trí in (Print Location Detection):** Phát hiện hình in ở mặt trước, mặt sau, tay áo trái (Left Sleeve) và/hoặc tay áo phải (Right Sleeve) -> Xác định thuộc loại **Multi-sided Print (In nhiều mặt/vị trí)**.
-3. **Gọi API và khớp dữ liệu:**
-   * Agent gọi API `GET /v2/product` để tìm các sản phẩm áo Hoodie (ví dụ: `USG18500` - Unisex Hoodie Gildan 18500).
-   * Agent gọi tiếp API `GET /v2/product/{id}` để trích xuất danh sách tất cả các biến thể (`variations`).
-4. **Tính toán chi phí in ấn:**
-   * Do phát hiện in nhiều mặt/in tay áo, Agent sẽ tính toán tổng giá base: `Total Base Cost = price (giá base gốc) + các phụ phí in thêm mặt/in tay áo (addition_price tương ứng)`.
-   * Đối với các xưởng (ví dụ: *Blanca*, *PrintWay*, v.v.), Agent sẽ so sánh giá và thời gian xử lý (`Processing Time` trích xuất từ `html_desc`).
-5. **Phản hồi người dùng:** Agent hiển thị kết quả phân tích rõ ràng:
-   * Nhận diện: Áo Hoodie, in nhiều vị trí (Mặt trước + Mặt sau + Tay áo).
-   * Bảng so sánh chi phí giữa các xưởng có cung cấp dòng áo này.
-   * Đề xuất xưởng in tối ưu nhất dựa trên thị trường (ví dụ: chọn xưởng ở US nếu ship US để tối ưu thời gian giao hàng).
+   * **Phát hiện loại sản phẩm (Category Detection):** Nhận diện mẫu là "T-shirt" (Áo thun).
+   * **Phát hiện màu sắc (Color Detection):** Nhận diện màu áo là "Black" (Đen).
+   * **Phát hiện vị trí in (Print Location Detection):** Phát hiện hình in ở mặt trước (Front) và mặt sau (Back) -> Xác định là **Multi-sided Print**.
+3. **Đề xuất dòng áo cơ bản và chờ xác nhận:**
+   * Thay vì đề xuất xưởng ngay, Agent gợi ý các dòng T-shirt phổ biến có trong catalog BurgerPrints để Seller chọn trước (ví dụ: **Gildan 5000 (USG5000)** - giá rẻ, vải dày; **Gildan 64000 (USG64000)** - mềm mịn, form ôm; hoặc **Bella + Canvas 3001 (USBC3001)** - cao cấp).
+   * Seller phản hồi lựa chọn: *"Mình chọn Gildan 5000 nhé."*
+4. **Gọi API và lọc theo màu sắc xưởng:**
+   * Agent gọi API `GET /v2/product/{short_code}` (với `{short_code}` = `USG5000`).
+   * Trích xuất danh sách biến thể (`variations[]`).
+   * **Kiểm tra tính khả dụng của màu sắc:** Lọc các variation có `color` khớp với màu đã phát hiện ("Black"). Do mỗi xưởng fulfillment (partner) có bảng màu khác nhau (ví dụ: Xưởng A có sẵn áo Gildan 5000 màu Đen, nhưng Xưởng B chỉ có màu Trắng và Navy), Agent sẽ chỉ giữ lại các xưởng có sẵn màu Đen.
+5. **Tính toán chi phí in ấn:**
+   * Agent tính toán tổng giá base cho màu Đen tại các xưởng còn lại: `Total Base Cost = price (giá base gốc cho màu Đen) + addition_price (phụ phí in mặt thứ 2)`.
+6. **Phản hồi người dùng:** Agent hiển thị bảng so sánh chi phí màu Đen giữa các xưởng đáp ứng được và đề xuất xưởng tối ưu nhất theo thị trường mục tiêu.
 
 ---
 
@@ -77,22 +79,34 @@ sequenceDiagram
 
 ## 4. Kịch bản hội thoại mẫu (Sample Dialogues)
 
-### Kịch bản 1: Nhận diện và gợi ý hoàn hảo (In 2 mặt + Tay áo)
-> **Seller:** *(Tải lên ảnh mockup Hoodie đen có logo nhỏ ở ngực, hình vẽ lớn ở lưng và họa tiết dọc tay áo trái)* "Tư vấn giúp mình xưởng in mẫu này gửi đi Mỹ."
+### Kịch bản 1: Nhận diện, chọn dòng sản phẩm và lọc theo màu áo
+> **Seller:** *(Tải lên ảnh mockup T-shirt đỏ có in trước, sau và tay áo trái)* "Tư vấn giúp mình xưởng in mẫu này gửi đi Mỹ."
 >
 > **Agent:**
 > 🔍 **Kết quả phân tích thiết kế:**
-> * **Loại sản phẩm:** Áo Hoodie (Unisex Hoodie)
-> * **Vị trí in:** In nhiều vị trí (Mặt trước + Mặt sau + Tay áo trái / Left Sleeve)
+> * **Loại sản phẩm:** Áo T-shirt (Unisex T-shirt)
+> * **Màu sắc:** Đỏ (Red)
+> * **Vị trí in:** In nhiều vị trí (Mặt trước + Mặt sau + Tay áo trái)
 >
-> Dựa trên API BurgerPrints, mẫu **Gildan 18500 (USG18500)** hỗ trợ in tay áo và in 2 mặt có các xưởng tại Mỹ như sau:
+> Trên BurgerPrints có nhiều dòng T-shirt phổ biến. Bạn muốn tham khảo dòng áo nào trước để mình lọc xưởng?
+> 1. **Gildan 5000 (USG5000):** Giá tối ưu, chất vải cotton thô dày dặn (Phổ biến nhất).
+> 2. **Gildan 64000 (USG64000):** Vải mềm mịn hơn, form ôm nhẹ trẻ trung.
+> 3. **Bella + Canvas 3001 (USBC3001):** Dòng cao cấp, siêu mềm, phù hợp làm brand cao cấp.
 >
-> | Xưởng | Giá áo (Base) | Phụ phí mặt thứ 2 | Phụ phí in tay áo | Tổng Base Cost | Processing Time | Đánh giá |
+> **Seller:** "Gildan 5000 nha."
+>
+> **Agent:**
+> ⏳ *Đang kiểm tra tính khả dụng của màu **Đỏ (Red)** cho dòng Gildan 5000 tại các xưởng ở Mỹ...*
+>
+> Dưới đây là các xưởng ở Mỹ đang hỗ trợ sẵn màu **Đỏ (Red)** cho dòng Gildan 5000 (in 2 mặt + tay áo):
+>
+> | Xưởng | Giá áo Red (Base) | Phụ phí mặt 2 | Phụ phí in tay áo | Tổng Base Cost | Trạng thái màu Red | Đánh giá |
 > | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-> | **Blanca** | $12.50 | $4.50 | $3.50 | **$20.50** | 1-3 ngày | Tối ưu nhất về giá & thời gian |
-> | **SwiftPrint** | $13.00 | $5.00 | $4.00 | **$22.00** | 2-4 ngày | Thời gian lâu hơn |
+> | **Blanca** | $6.20 | $4.00 | $3.00 | **$13.20** | ✅ Có sẵn | Tối ưu chi phí và xử lý nhanh |
+> | **PrintWay** | $6.50 | $4.20 | $3.20 | **$13.90** | ✅ Có sẵn | Giá cao hơn một chút |
+> | *SwiftPrint* | - | - | - | - | ❌ Không có màu Red | Chỉ có Black, White, Navy |
 >
-> 💡 **Khuyến nghị:** Bạn nên chọn xưởng **Blanca** cho mẫu này để tối ưu chi phí ($20.50) và giao hàng nhanh nhất. Bạn có muốn tạo thử đơn hàng Sandbox cho thiết kế này không?
+> 💡 **Khuyến nghị:** Bạn nên chọn xưởng **Blanca** cho thiết kế màu Đỏ này. Xưởng SwiftPrint bị loại vì không cung cấp màu đỏ cho Gildan 5000. Bạn có muốn tạo đơn hàng Sandbox thử không?
 
 ---
 
