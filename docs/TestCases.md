@@ -538,6 +538,39 @@ pass_criteria:
 
 ---
 
+### TC-G04: Truy cập trực tiếp dưới vai trò Khách và Đăng nhập lưu Lịch sử
+
+```yaml
+id: TC-G04
+priority: P0 (CRITICAL)
+type: UX_FLOW
+language: Vietnamese
+description: "Kiểm tra luồng truy cập trực tiếp dưới vai trò Khách và mở đăng nhập từ lịch sử"
+steps:
+  - step: 1
+    action: "Truy cập ứng dụng với bộ nhớ cache/localStorage trống"
+    expected: "Vào thẳng màn hình chat. Welcome Modal không tự động hiển thị. Trạng thái kết nối là Khách (Guest) và tự sinh Guest Session UUID."
+  - step: 2
+    action: "Gửi câu hỏi đầu tiên: 'Tìm áo thun Mỹ'"
+    expected: "Agent phản hồi kết quả bình thường dựa trên phiên Khách."
+  - step: 3
+    action: "Bấm nút 'Lịch sử chat' hoặc biểu tượng Đăng nhập trên thanh sidebar"
+    expected: "Welcome Modal hiển thị cho phép chọn Google Login hoặc Email Login."
+  - step: 4
+    action: "Bấm ra ngoài modal (hoặc bấm Hủy/Chat tiếp vai trò khách)"
+    expected: "Welcome Modal đóng lại, người dùng tiếp tục ở phiên Khách."
+  - step: 5
+    action: "Mở lại Welcome Modal và thực hiện đăng nhập"
+    expected: "Đăng nhập thành công, Welcome Modal đóng lại. Trạng thái người dùng cập nhật sang tên tài khoản đã đăng nhập, và phiên kết nối đổi sang session người dùng."
+pass_criteria:
+  - ✅ Welcome Modal không tự động chặn màn hình lúc khởi chạy.
+  - ✅ Khách có thể chat ngay lập tức mà không cần bất kỳ bước cấu hình/đăng nhập nào.
+  - ✅ Nút 'Lịch sử chat' và icon footer hoạt động như lối vào đăng nhập cho tài khoản Khách.
+  - ✅ Đăng nhập chuyển đổi trạng thái phiên mượt mà.
+```
+
+---
+
 ## Scoring Matrix (Giám khảo)
 
 | Nhóm | Test | Trọng số | Điểm tối đa |
@@ -548,7 +581,7 @@ pass_criteria:
 | D — SKU | TC-D01, D02 | 10% | 10 |
 | E — Multi-turn | TC-E01, E02, E03 | 15% | 15 |
 | F — Bonus Order | TC-F01, F02 | 5% | 5 |
-| G — UX/Perf | TC-G01, G02, G03 | 5% | 5 |
+| G — UX/Perf | TC-G01, G02, G03, G04 | 5% | 5 |
 | **Total** | | **100%** | **100** |
 
 ---
