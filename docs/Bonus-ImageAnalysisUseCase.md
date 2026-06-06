@@ -12,7 +12,7 @@
 | **Tên Use Case** | Nhận diện ảnh thiết kế và đề xuất Fulfillment tối ưu |
 | **Mã định danh** | UC-BONUS-01 |
 | **Tác nhân** | Seller (Designer) |
-| **Mô tả** | Seller gửi một hình ảnh thiết kế lên cửa sổ chat. Agent sử dụng khả năng đa phương thức (Multimodal - như Gemini 1.5/2.0) để nhận diện loại áo (T-shirt/Hoodie/Sweatshirt) và các mặt cần in (mặt trước, mặt sau, hoặc cả hai), sau đó gọi BurgerPrints API để tìm kiếm và so sánh các xưởng in phù hợp nhất. |
+| **Mô tả** | Seller gửi một hình ảnh thiết kế lên cửa sổ chat. Agent sử dụng khả năng đa phương thức (Multimodal - như Gemini 1.5/2.0) để nhận diện loại áo (T-shirt/Hoodie/Sweatshirt) và các mặt cần in (mặt trước, mặt sau, tay áo trái/phải, hoặc kết hợp), sau đó gọi BurgerPrints API để tìm kiếm và so sánh các xưởng in phù hợp nhất. |
 | **Tiền điều kiện** | Agent được cấu hình model hỗ trợ Vision (ví dụ: `gemini-1.5-flash` hoặc `gpt-4o`). |
 | **Hậu điều kiện** | Seller nhận được đề xuất nhà in kèm bảng so sánh giá base cost, phí in thêm mặt (nếu in 2 mặt) và xưởng tối ưu nhất cho thiết kế đó. |
 
@@ -27,8 +27,8 @@ sequenceDiagram
     participant API as BurgerPrints API v2.0
     
     Seller->>Agent: Tải ảnh thiết kế lên + Câu hỏi tư vấn
-    Note over Agent: Chạy Vision Model để nhận diện:<br/>1. Loại sản phẩm (Hoodie/T-shirt...)<br/>2. Các mặt in (Front / Back / Cả hai)
-    Agent-->>Seller: Phản hồi nhận diện ("Phát hiện Hoodie, in 2 mặt...")
+    Note over Agent: Chạy Vision Model để nhận diện:<br/>1. Loại sản phẩm (Hoodie/T-shirt...)<br/>2. Các mặt in (Front / Back / Sleeve / Kết hợp)
+    Agent-->>Seller: Phản hồi nhận diện ("Phát hiện Hoodie, in trước + sau + tay áo...")
     
     rect rgb(240, 248, 255)
         Note over Agent: Tìm kiếm Catalog & Variations
@@ -46,15 +46,15 @@ sequenceDiagram
 1. **Tác nhân gửi yêu cầu:** Seller tải lên một file ảnh thiết kế (ví dụ: mẫu mockup áo Hoodie màu đen có in cả mặt trước và mặt sau) kèm tin nhắn: *"Tư vấn xưởng in mẫu này giúp mình."*
 2. **Phân tích hình ảnh:** Agent kích hoạt phân tích đa phương thức (Vision) từ ảnh đầu vào:
    * **Phát hiện loại sản phẩm (Category Detection):** Nhận diện mẫu là "Hoodie" (Áo nỉ có mũ).
-   * **Phát hiện vị trí in (Print Location Detection):** Phát hiện có hình in ở cả mặt trước (ngực áo) và mặt sau (lưng áo) -> Xác định thuộc loại **Double-sided Print (In 2 mặt)**.
+   * **Phát hiện vị trí in (Print Location Detection):** Phát hiện hình in ở mặt trước, mặt sau, tay áo trái (Left Sleeve) và/hoặc tay áo phải (Right Sleeve) -> Xác định thuộc loại **Multi-sided Print (In nhiều mặt/vị trí)**.
 3. **Gọi API và khớp dữ liệu:**
    * Agent gọi API `GET /v2/product` để tìm các sản phẩm áo Hoodie (ví dụ: `USG18500` - Unisex Hoodie Gildan 18500).
    * Agent gọi tiếp API `GET /v2/product/{id}` để trích xuất danh sách tất cả các biến thể (`variations`).
 4. **Tính toán chi phí in ấn:**
-   * Do phát hiện in 2 mặt, Agent sẽ tính toán tổng giá base: `Total Base Cost = price (giá base gốc) + addition_price (phụ phí in mặt thứ 2)`.
+   * Do phát hiện in nhiều mặt/in tay áo, Agent sẽ tính toán tổng giá base: `Total Base Cost = price (giá base gốc) + các phụ phí in thêm mặt/in tay áo (addition_price tương ứng)`.
    * Đối với các xưởng (ví dụ: *Blanca*, *PrintWay*, v.v.), Agent sẽ so sánh giá và thời gian xử lý (`Processing Time` trích xuất từ `html_desc`).
 5. **Phản hồi người dùng:** Agent hiển thị kết quả phân tích rõ ràng:
-   * Nhận diện: Áo Hoodie, in 2 mặt (Mặt trước + Mặt sau).
+   * Nhận diện: Áo Hoodie, in nhiều vị trí (Mặt trước + Mặt sau + Tay áo).
    * Bảng so sánh chi phí giữa các xưởng có cung cấp dòng áo này.
    * Đề xuất xưởng in tối ưu nhất dựa trên thị trường (ví dụ: chọn xưởng ở US nếu ship US để tối ưu thời gian giao hàng).
 
@@ -77,22 +77,22 @@ sequenceDiagram
 
 ## 4. Kịch bản hội thoại mẫu (Sample Dialogues)
 
-### Kịch bản 1: Nhận diện và gợi ý hoàn hảo (In 2 mặt)
-> **Seller:** *(Tải lên ảnh mockup Hoodie đen có logo nhỏ ở ngực và hình vẽ lớn ở lưng)* "Tư vấn giúp mình xưởng in mẫu này gửi đi Mỹ."
+### Kịch bản 1: Nhận diện và gợi ý hoàn hảo (In 2 mặt + Tay áo)
+> **Seller:** *(Tải lên ảnh mockup Hoodie đen có logo nhỏ ở ngực, hình vẽ lớn ở lưng và họa tiết dọc tay áo trái)* "Tư vấn giúp mình xưởng in mẫu này gửi đi Mỹ."
 >
 > **Agent:**
 > 🔍 **Kết quả phân tích thiết kế:**
 > * **Loại sản phẩm:** Áo Hoodie (Unisex Hoodie)
-> * **Vị trí in:** In 2 mặt (Mặt trước + Mặt sau)
+> * **Vị trí in:** In nhiều vị trí (Mặt trước + Mặt sau + Tay áo trái / Left Sleeve)
 >
-> Dựa trên API BurgerPrints, mẫu **Gildan 18500 (USG18500)** có các xưởng tại Mỹ hỗ trợ in 2 mặt như sau:
+> Dựa trên API BurgerPrints, mẫu **Gildan 18500 (USG18500)** hỗ trợ in tay áo và in 2 mặt có các xưởng tại Mỹ như sau:
 >
-> | Xưởng | Giá áo (Base) | Phụ phí mặt thứ 2 | Tổng Base Cost | Processing Time | Đánh giá |
-> | :--- | :---: | :---: | :---: | :---: | :--- |
-> | **Blanca** | $12.50 | $4.50 | **$17.00** | 1-3 ngày | Tối ưu nhất về giá & thời gian |
-> | **SwiftPrint** | $13.00 | $5.00 | **$18.00** | 2-4 ngày | Thời gian lâu hơn |
+> | Xưởng | Giá áo (Base) | Phụ phí mặt thứ 2 | Phụ phí in tay áo | Tổng Base Cost | Processing Time | Đánh giá |
+> | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+> | **Blanca** | $12.50 | $4.50 | $3.50 | **$20.50** | 1-3 ngày | Tối ưu nhất về giá & thời gian |
+> | **SwiftPrint** | $13.00 | $5.00 | $4.00 | **$22.00** | 2-4 ngày | Thời gian lâu hơn |
 >
-> 💡 **Khuyến nghị:** Bạn nên chọn xưởng **Blanca** cho mẫu này để tối ưu chi phí ($17.00) và giao hàng nhanh nhất. Bạn có muốn tạo thử đơn hàng Sandbox cho thiết kế này không?
+> 💡 **Khuyến nghị:** Bạn nên chọn xưởng **Blanca** cho mẫu này để tối ưu chi phí ($20.50) và giao hàng nhanh nhất. Bạn có muốn tạo thử đơn hàng Sandbox cho thiết kế này không?
 
 ---
 
