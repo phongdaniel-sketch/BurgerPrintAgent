@@ -44,6 +44,7 @@ export default function App() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptText, setPromptText] = useState('');
   const [promptBusy, setPromptBusy] = useState(false);
+  const [tools, setTools] = useState([]);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
   const stick = useRef(true); // chỉ auto-scroll khi user đang ở gần đáy
@@ -222,6 +223,7 @@ export default function App() {
       });
       const d = await r.json();
       setPromptText(d.systemPrompt ?? d.default ?? '');
+      setTools(d.tools ?? []);
     } catch {
       setPromptText('');
     }
@@ -385,8 +387,25 @@ export default function App() {
               <p className="text-[12.5px] text-stone-400 mt-1.5 mb-2.5">
                 Chỉnh cách agent hành xử cho phiên này. Để trống / Khôi phục mặc định để dùng prompt gốc.
               </p>
+              {tools.length > 0 && (
+                <div className="mb-2.5 rounded-xl border border-stone-200 bg-stone-50 p-3 max-h-40 overflow-y-auto">
+                  <div className="text-[12px] font-semibold text-stone-500 mb-1.5">
+                    🛠️ Tool agent có thể dùng (tham khảo khi viết prompt)
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {tools.map((t) => (
+                      <div key={t.name} className="text-[12.5px] leading-snug">
+                        <code className="text-stone-800 bg-stone-200/70 px-1.5 py-0.5 rounded font-mono">
+                          {t.name}
+                        </code>
+                        <span className="text-stone-500"> — {t.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <textarea
-                className="flex-1 min-h-[300px] resize-y border border-stone-200 rounded-xl p-3.5 text-[13px] leading-relaxed font-mono text-stone-800 outline-none focus:border-stone-300"
+                className="flex-1 min-h-[180px] resize-y border border-stone-200 rounded-xl p-3.5 text-[13px] leading-relaxed font-mono text-stone-800 outline-none focus:border-stone-300"
                 value={promptText}
                 onChange={(e) => setPromptText(e.target.value)}
                 spellCheck={false}

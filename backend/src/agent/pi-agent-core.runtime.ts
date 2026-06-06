@@ -404,3 +404,23 @@ export function defaultSystemPrompt(): string {
     `- After answering, suggest a helpful next step.`,
   ].join('\n');
 }
+
+/** Tóm tắt các tool (name + ý nghĩa) để FE hiển thị cho người viết prompt. */
+export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
+  {
+    name: 'search_products',
+    desc: 'Tìm sản phẩm theo loại + thị trường + giá vốn tối đa (category, market, max_base_cost). Trả base_cost (rẻ nhất), xưởng rẻ nhất, số màu — sort theo giá. Dùng để khám phá hoặc liệt kê sub-type của một loại.',
+  },
+  {
+    name: 'compare_factories',
+    desc: 'So sánh TẤT CẢ xưởng của MỘT sản phẩm (short_code): base cost min/max mỗi xưởng + sizes/màu. Dùng sau khi đã chốt 1 sản phẩm cụ thể, hoặc để tính margin.',
+  },
+  {
+    name: 'get_product_variants',
+    desc: 'Liệt kê SKU cụ thể của một sản phẩm (màu/size/giá/xưởng), kèm catalog_sku (mã đặt đơn) và in_stock. Dùng khi cần màu/size cụ thể hoặc chuẩn bị đặt hàng.',
+  },
+  {
+    name: 'create_order',
+    desc: 'Tạo đơn fulfillment (shipping + items). Mặc định sandbox=true (đơn thử). Chỉ gọi sau khi seller xác nhận SKU + số lượng + địa chỉ.',
+  },
+];

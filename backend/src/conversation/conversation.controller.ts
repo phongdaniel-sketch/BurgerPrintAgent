@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentChunk } from '../agent/agent.types';
-import { defaultSystemPrompt } from '../agent/pi-agent-core.runtime';
+import { defaultSystemPrompt, AGENT_TOOLS_INFO } from '../agent/pi-agent-core.runtime';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ConversationService } from './conversation.service';
@@ -48,11 +48,13 @@ export class ConversationController {
   /** Lấy system prompt hiện tại của phiên + bản mặc định (để FE chỉnh). */
   @ApiAuth({ summary: 'Get conversation system prompt' })
   @Get(':sessionId/system-prompt')
-  async getSystemPrompt(
-    @Param('sessionId') sessionId: string,
-  ): Promise<{ systemPrompt: string | null; default: string }> {
+  async getSystemPrompt(@Param('sessionId') sessionId: string): Promise<{
+    systemPrompt: string | null;
+    default: string;
+    tools: Array<{ name: string; desc: string }>;
+  }> {
     const custom = await this.conversation.getSystemPrompt(sessionId);
-    return { systemPrompt: custom, default: defaultSystemPrompt() };
+    return { systemPrompt: custom, default: defaultSystemPrompt(), tools: AGENT_TOOLS_INFO };
   }
 
   /** Đặt/đổi system prompt cho phiên (rỗng = reset về mặc định). */
