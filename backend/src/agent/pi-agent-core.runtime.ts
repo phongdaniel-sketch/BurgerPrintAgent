@@ -130,7 +130,10 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           break;
         case 'tool_execution_end': {
           const details = event.result?.details ?? event.result;
-          const { count, results } = this.extractToolResults(event.toolName, details);
+          const { count, results } = this.extractToolResults(
+            event.toolName,
+            details,
+          );
           push({
             type: 'tool',
             id: event.toolCallId,
@@ -185,7 +188,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
 
   /** System prompt: dùng custom (nếu seller chỉnh) hoặc mặc định. */
   private buildSystemPrompt(input: AgentRunInput): string {
-    if (input.systemPrompt && input.systemPrompt.trim()) return input.systemPrompt;
+    if (input.systemPrompt && input.systemPrompt.trim())
+      return input.systemPrompt;
     return defaultSystemPrompt();
   }
 
@@ -223,23 +227,46 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       count = details.qualified ?? details.products.length;
       items = details.products.map((p: any) => ({
         title: p.name ?? p.short_code,
-        meta: [money(p.base_cost), p.cheapest_factory].filter(Boolean).join(' · ') || undefined,
+        meta:
+          [money(p.base_cost), p.cheapest_factory]
+            .filter(Boolean)
+            .join(' · ') || undefined,
       }));
-    } else if (toolName === 'compare_factories' && Array.isArray(details.factories)) {
+    } else if (
+      toolName === 'compare_factories' &&
+      Array.isArray(details.factories)
+    ) {
       count = details.factories.length;
       items = details.factories.map((f: any) => ({
         title: f.partner_name,
         meta: money(f.min_price),
       }));
-    } else if (toolName === 'get_product_variants' && Array.isArray(details.variants)) {
+    } else if (
+      toolName === 'get_product_variants' &&
+      Array.isArray(details.variants)
+    ) {
       count = details.total_matched ?? details.variants.length;
       items = details.variants.map((v: any) => ({
         title: v.catalog_sku ?? v.sku,
-        meta: [`${v.color}/${v.size}`, money(v.price)].filter(Boolean).join(' · ') || undefined,
+        meta:
+          [`${v.color}/${v.size}`, money(v.price)]
+            .filter(Boolean)
+            .join(' · ') || undefined,
       }));
     } else if (toolName === 'create_order') {
       const oid = details.result?.order_id;
-      if (oid) items = [{ title: `Đơn ${oid}`, meta: details.sandbox ? 'sandbox' : 'thật' }];
+      if (oid)
+        items = [
+          { title: `Đơn ${oid}`, meta: details.sandbox ? 'sandbox' : 'thật' },
+        ];
+    } else if (toolName === 'get_shipping' && Array.isArray(details.shipping)) {
+      count = details.total_countries ?? details.shipping.length;
+      items = details.shipping.map((s: any) => ({
+        title: s.country,
+        meta:
+          [money(s.first_item_price), s.time].filter(Boolean).join(' · ') ||
+          undefined,
+      }));
     }
 
     return { count, results: items?.slice(0, 8) };
@@ -275,7 +302,8 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         {
           category: {
             type: 'string',
-            description: 'Loại sản phẩm, vd "t-shirt", "hoodie", "tank top", "sweatshirt"',
+            description:
+              'Loại sản phẩm, vd "t-shirt", "hoodie", "tank top", "sweatshirt"',
           },
           market: {
             type: 'string',
@@ -359,7 +387,10 @@ export class PiAgentCoreRuntime implements AgentRuntime {
               required: ['catalog_sku', 'quantity'],
             },
           },
-          sandbox: { type: 'boolean', description: 'true = đơn thử (mặc định true)' },
+          sandbox: {
+            type: 'boolean',
+            description: 'true = đơn thử (mặc định true)',
+          },
         },
         ['shipping', 'items'],
         (p) =>
@@ -381,6 +412,31 @@ export class PiAgentCoreRuntime implements AgentRuntime {
         ['query'],
         (p) => this.memory.searchHistory(input.sessionId, p.query),
       ),
+      tool(
+        'get_shipping',
+        'Phí + thời gian ship của MỘT xưởng tới từng nước (carrier, giá sp đầu/sp thêm). ' +
+          'Lấy partner_id từ compare_factories. Dùng để so "xưởng nào ship nước X rẻ/nhanh nhất" ' +
+          'và tính margin ĐỦ cả phí ship.',
+        {
+          short_code: {
+            type: 'string',
+            description: 'Mã sản phẩm, vd "EUG2400"',
+          },
+          partner_id: {
+            type: 'string',
+            description:
+              'ID xưởng (lấy từ compare_factories.factories[].partner_id)',
+          },
+          country: {
+            type: 'string',
+            description:
+              'Lọc theo nước (tên hoặc mã, vd "US"/"Germany") — tùy chọn',
+          },
+        },
+        ['short_code', 'partner_id'],
+        (p) =>
+          this.burgerprints.getShipping(p.short_code, p.partner_id, p.country),
+      ),
     ];
   }
 }
@@ -394,11 +450,12 @@ export function defaultSystemPrompt(): string {
     `LANGUAGE: Always reply in the SAME language as the seller's latest message (auto-detect). Be concise and decision-ready; use compact markdown tables when comparing.`,
     ``,
     `TOOLS & WORKFLOW:`,
-    `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category.`,
+    `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category. IMPORTANT: if the seller names a SPECIFIC product/model (e.g. "Bella + Canvas 3001", "Gildan 18600"), pass that exact name as category (matching is token/punctuation-insensitive) — do NOT search the generic type, because results are sorted by price and capped, so a specific (pricier) model would be hidden. If total_matched > products returned and you don't see the named product, refine the keyword before concluding it doesn't exist.`,
     `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
     `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
     `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
     `5. search_history(query) → search the FULL conversation history (BM25). Only the last few turns are in your context; if the seller refers to something said earlier that you don't see, call search_history to retrieve it instead of guessing or saying you forgot.`,
+    `6. get_shipping(short_code, partner_id, country?) → shipping fee + time per country for ONE factory (partner_id from compare_factories). Use to answer "which factory ships cheapest/fastest to country X" and to compute margin INCLUDING shipping.`,
     ``,
     `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
     ``,
@@ -407,7 +464,8 @@ export function defaultSystemPrompt(): string {
     `- "price" = base cost of the 1st item; "2nd_price" = cost from the 2nd item onward.`,
     `- Market is inferred from short_code prefix (US.., EU.., AP..=CN).`,
     `- in_stock=false → SKU is out of stock; don't recommend/order it.`,
-    `- Shipping fee/time by destination and factory rating are NOT in the catalog API. Never invent them; say they're not available and compare on base cost only.`,
+    `- Shipping fee/time by destination ARE available via get_shipping (per factory, per country); compare_factories returns processing_time per factory. Factory rating is NOT available — never invent it.`,
+    `- TOTAL cost to a destination = base cost (compare_factories) + shipping first_item_price (get_shipping). Use this for accurate margin and "cheapest/fastest to country X".`,
     ``,
     `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute it then call search_products(max_base_cost=that).`,
     ``,
@@ -441,5 +499,9 @@ export const AGENT_TOOLS_INFO: Array<{ name: string; desc: string }> = [
   {
     name: 'search_history',
     desc: 'Tìm lại trong lịch sử hội thoại (BM25) khi seller nhắc tới điều đã nói trước đó mà không còn trong ngữ cảnh hiện tại (chỉ N lượt gần nhất được nạp).',
+  },
+  {
+    name: 'get_shipping',
+    desc: 'Phí + thời gian ship của 1 xưởng (partner_id từ compare_factories) tới từng nước (carrier, giá sp đầu/thêm). Dùng cho "ship nước X rẻ/nhanh nhất" và tính margin đủ ship.',
   },
 ];

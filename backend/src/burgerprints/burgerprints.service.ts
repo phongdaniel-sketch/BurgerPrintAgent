@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { firstValueFrom } from 'rxjs';
 import { RedisService } from '../redis/redis.service';
+import { CatalogV1Service } from '../catalog-v1/catalog-v1.service';
 
 /**
  * Client BurgerPrints API v2.0 (FR-006). Header auth: `api-key`.
@@ -26,7 +27,17 @@ export class BurgerPrintsService {
     private readonly http: HttpService,
     private readonly config: ConfigService,
     private readonly redis: RedisService,
+    private readonly catalogV1: CatalogV1Service,
   ) {}
+
+  /** Tool get_shipping: phí + thời gian ship của 1 xưởng tới từng nước (catalog-api v1). */
+  async getShipping(
+    shortCode: string,
+    partnerId: string,
+    country?: string,
+  ): Promise<unknown> {
+    return this.catalogV1.getShipping(shortCode, partnerId, country);
+  }
 
   private get baseUrl(): string {
     return this.config.get<string>('burgerprints.baseUrl') as string;
@@ -64,11 +75,14 @@ export class BurgerPrintsService {
       .map((p) => ({
         short_code: p.short_code,
         name: p.name,
-        market: this.marketOf(p.short_code, this.parseHtmlDesc(p.html_desc ?? '').location),
+        market: this.marketOf(
+          p.short_code,
+          this.parseHtmlDesc(p.html_desc ?? '').location,
+        ),
         html_desc: p.html_desc,
       }))
       .filter((p) => {
-        const kwOk = !kw || p.name?.toLowerCase().includes(kw);
+        const kwOk = this.matchKeyword(p.name ?? '', kw);
         const marketOk = !market || p.market === market;
         return kwOk && marketOk;
       });
@@ -108,11 +122,16 @@ export class BurgerPrintsService {
 
     // B3: filter theo max_base_cost + sort theo giá tăng dần
     let result = enriched.filter((r) => r.base_cost != null);
-    if (maxCost != null) result = result.filter((r) => (r.base_cost as number) <= maxCost);
+    if (maxCost != null)
+      result = result.filter((r) => (r.base_cost as number) <= maxCost);
     result.sort((a, b) => (a.base_cost as number) - (b.base_cost as number));
 
     return {
-      query: { category: kw || null, market: market || null, max_base_cost: maxCost },
+      query: {
+        category: kw || null,
+        market: market || null,
+        max_base_cost: maxCost,
+      },
       total_matched: matched.length,
       enriched: toEnrich.length,
       qualified: result.length,
@@ -130,12 +149,15 @@ export class BurgerPrintsService {
   ): Promise<R[]> {
     const out: R[] = new Array(items.length);
     let i = 0;
-    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (i < items.length) {
-        const idx = i++;
-        out[idx] = await fn(items[idx]);
-      }
-    });
+    const workers = Array.from(
+      { length: Math.min(limit, items.length) },
+      async () => {
+        while (i < items.length) {
+          const idx = i++;
+          out[idx] = await fn(items[idx]);
+        }
+      },
+    );
     await Promise.all(workers);
     return out;
   }
@@ -149,28 +171,40 @@ export class BurgerPrintsService {
     const d = (detail as any).data ?? detail;
     const variations: any[] = d.variations ?? [];
 
-    // Gom theo xưởng (partner_name) → min/max base cost + số SKU.
+    // Gom theo xưởng (partner_name) → min/max base cost + số SKU + partner_id.
     const byFactory = new Map<
       string,
-      { min: number; max: number; count: number }
+      { min: number; max: number; count: number; partner_id: string | null }
     >();
     for (const v of variations) {
       const f = v.partner_name || 'Unknown';
       const price = parseFloat(v.price);
       if (Number.isNaN(price)) continue;
-      const cur = byFactory.get(f) ?? { min: price, max: price, count: 0 };
+      const cur = byFactory.get(f) ?? {
+        min: price,
+        max: price,
+        count: 0,
+        partner_id: v.partner_id ?? null,
+      };
       cur.min = Math.min(cur.min, price);
       cur.max = Math.max(cur.max, price);
       cur.count += 1;
       byFactory.set(f, cur);
     }
 
+    // Processing time mỗi xưởng (catalog-api v1) — best-effort, cache.
+    const processing = await this.catalogV1.getProcessingByPartner(
+      d.short_code,
+    );
+
     const factories = [...byFactory.entries()]
       .map(([partner_name, s]) => ({
         partner_name,
+        partner_id: s.partner_id, // dùng cho get_shipping
         min_price: s.min,
         max_price: s.max,
         sku_count: s.count,
+        processing_time: (s.partner_id && processing[s.partner_id]) || null,
       }))
       .sort((a, b) => a.min_price - b.min_price);
 
@@ -278,8 +312,12 @@ export class BurgerPrintsService {
       items: payload.items.map((it) => ({
         catalog_sku: it.catalog_sku,
         quantity: it.quantity,
-        ...(it.design_url_front ? { design_url_front: it.design_url_front } : {}),
-        ...(it.mockup_url_front ? { mockup_url_front: it.mockup_url_front } : {}),
+        ...(it.design_url_front
+          ? { design_url_front: it.design_url_front }
+          : {}),
+        ...(it.mockup_url_front
+          ? { mockup_url_front: it.mockup_url_front }
+          : {}),
       })),
       // Mặc định sandbox=true (không phát sinh đơn thật) trừ khi seller xác nhận thật.
       sandbox: payload.sandbox ?? true,
@@ -288,7 +326,10 @@ export class BurgerPrintsService {
     try {
       const res = await firstValueFrom(
         this.http.post(`${this.baseUrl}/order`, body, {
-          headers: { 'api-key': this.apiKey, 'Content-Type': 'application/json' },
+          headers: {
+            'api-key': this.apiKey,
+            'Content-Type': 'application/json',
+          },
           timeout: 20_000,
         }),
       );
@@ -441,8 +482,10 @@ export class BurgerPrintsService {
       .replace(/\s+/g, ' ')
       .trim();
     const processingTime =
-      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i.exec(text)?.[1]?.trim()?.slice(0, 50) ??
-      null;
+      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i
+        .exec(text)?.[1]
+        ?.trim()
+        ?.slice(0, 50) ?? null;
     const printing =
       /(?:Printing tech\w*|Technique)[:\s]*([^.<]+?)(?:\.|Manufactured|Location|$)/i.exec(
         text,
@@ -453,8 +496,9 @@ export class BurgerPrintsService {
       /Location[:\s]*([A-Za-z ]+?)(?:\.|,|<|$)/i.exec(text)?.[1]?.trim() ??
       null;
     const material =
-      /(\d+%[^.]*?(?:cotton|polyester|spandex)[^.]*)/i.exec(text)?.[1]?.trim() ??
-      null;
+      /(\d+%[^.]*?(?:cotton|polyester|spandex)[^.]*)/i
+        .exec(text)?.[1]
+        ?.trim() ?? null;
     return {
       material: material ? material.slice(0, 80) : null,
       printing: printing ? printing.trim().slice(0, 40) : null,
@@ -475,6 +519,22 @@ export class BurgerPrintsService {
     if (loc.includes('euro')) return 'EU';
     if (loc.includes('china')) return 'CN';
     return 'OTHER';
+  }
+
+  /**
+   * Khớp từ khoá kiểu token: chuẩn hoá (lowercase + bỏ ký tự đặc biệt như + | -),
+   * yêu cầu MỌI token của keyword xuất hiện (substring) trong tên sản phẩm.
+   * → "bella canvas 3001" khớp "Bella + Canvas 3001"; "sweat" khớp "Sweatshirt".
+   */
+  private matchKeyword(name: string, kw: string): boolean {
+    if (!kw) return true;
+    const norm = (x: string) =>
+      x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const nameN = norm(name);
+    return norm(kw)
+      .split(' ')
+      .filter(Boolean)
+      .every((t) => nameN.includes(t));
   }
 
   /** Chuẩn hoá tham số market người dùng nhập → mã chuẩn. */
