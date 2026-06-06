@@ -484,6 +484,32 @@ pass_criteria:
 
 ---
 
+### TC-F03: Cảnh báo định dạng file in thiết kế khi tạo đơn
+
+```yaml
+id: TC-F03
+priority: P2 (BONUS)
+language: Vietnamese
+type: MULTI_TURN
+turns:
+  - turn: 1
+    input: "Đặt 5 cái áo thun đỏ, size XL, xưởng Blanca, design_url: https://example.com/logo.jpg, ship về US"
+    expected:
+      - Agent phát hiện file thiết kế dạng JPG (không phải PNG)
+      - Agent hiển thị cảnh báo: khuyến nghị sử dụng file PNG nền trong suốt để tránh lỗi in khối màu nền bao quanh hình in khi sản xuất
+      - Agent hỏi user có muốn tiếp tục đi đơn với file này hay đổi file khác
+  - turn: 2
+    input: "Vẫn tiếp tục dùng file này"
+    expected:
+      - Agent hiển thị order summary đầy đủ để xác nhận tạo đơn hàng bình thường
+pass_criteria:
+  - ✅ Phát hiện định dạng thiết kế khác PNG (vd: JPG) và hiển thị cảnh báo phù hợp
+  - ✅ Không chặn cứng, chỉ cảnh báo để user nhận biết và đưa ra quyết định
+  - ✅ Cho phép user tiếp tục đi đơn nếu xác nhận
+```
+
+---
+
 ## Nhóm G — Performance & UX
 
 ### TC-G01: Thời gian phản hồi
@@ -547,7 +573,7 @@ pass_criteria:
 | C — Margin | TC-C01, C02, C03 | 20% | 20 |
 | D — SKU | TC-D01, D02 | 10% | 10 |
 | E — Multi-turn | TC-E01, E02, E03 | 15% | 15 |
-| F — Bonus Order | TC-F01, F02 | 5% | 5 |
+| F — Bonus Order | TC-F01, F02, F03 | 5% | 5 |
 | G — UX/Perf | TC-G01, G02, G03 | 5% | 5 |
 | **Total** | | **100%** | **100** |
 
