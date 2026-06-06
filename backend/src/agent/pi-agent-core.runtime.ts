@@ -186,17 +186,21 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       `LANGUAGE: Always reply in ${lang} (mirror the seller's language). Be concise and decision-ready; use compact markdown tables when comparing.`,
       ``,
       `TOOLS & WORKFLOW:`,
-      `1. search_products(keyword, market?) → list base products matching a product type (e.g. "t-shirt", "hoodie") and market (US/EU/CN). Use this first for broad queries.`,
-      `2. get_product_pricing(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use to compare factories or get price for margin.`,
-      `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price) for a product. Use when the seller wants specific color/size or to order.`,
+      `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category.`,
+      `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
+      `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
+      `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
+      ``,
+      `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
       ``,
       `KEY DATA FACTS:`,
       `- "Factory" = partner_name. One product is fulfilled by MANY factories at different base costs.`,
       `- "price" = base cost of the 1st item; "2nd_price" = cost from the 2nd item onward.`,
-      `- Market is inferred from short_code prefix (US.., EU.., AP..=CN) — pass market to search_products to narrow.`,
-      `- ⚠️ Shipping fee by destination is NOT in the catalog API. Do not invent it; say it's only known at order time, and use factory location + base cost for guidance.`,
+      `- Market is inferred from short_code prefix (US.., EU.., AP..=CN).`,
+      `- in_stock=false → SKU is out of stock; don't recommend/order it.`,
+      `- ⚠️ Shipping fee/time by destination and factory rating are NOT in the catalog API. Never invent them; say they're not available and compare on base cost only.`,
       ``,
-      `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute margin on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100).`,
+      `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute it then call search_products(max_base_cost=that).`,
       ``,
       `BEHAVIOR:`,
       `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
@@ -251,23 +255,35 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     return [
       tool(
         'search_products',
-        'Tìm danh sách base product theo loại sản phẩm và thị trường. Dùng đầu tiên cho câu hỏi chung. Trả short_code + tên + market + chất liệu/kỹ thuật in (KHÔNG có giá — lấy giá qua get_product_pricing).',
+        'Tìm sản phẩm theo loại + thị trường + giá vốn tối đa. Trả về danh sách kèm base_cost ' +
+          '(giá vốn thấp nhất), xưởng rẻ nhất, số màu — đã sort theo giá tăng dần. Dùng cho ' +
+          'câu kiểu "T-shirt thị trường Mỹ giá vốn dưới $8".',
         {
-          keyword: {
+          category: {
             type: 'string',
-            description: 'Loại/từ khoá sản phẩm, vd "t-shirt", "hoodie", "tank top"',
+            description: 'Loại sản phẩm, vd "t-shirt", "hoodie", "tank top", "sweatshirt"',
           },
           market: {
             type: 'string',
             description: 'Thị trường: US | EU | CN | AU (tùy chọn)',
           },
+          max_base_cost: {
+            type: 'number',
+            description: 'Giá vốn tối đa (USD) để lọc, vd 8 (tùy chọn)',
+          },
         },
         [],
-        (p) => this.burgerprints.searchProducts(p),
+        (p) =>
+          this.burgerprints.searchProducts({
+            category: p.category,
+            market: p.market,
+            max_base_cost: p.max_base_cost,
+          }),
       ),
       tool(
-        'get_product_pricing',
-        'Lấy giá vốn (base cost) theo từng XƯỞNG (partner_name) + sizes/màu của MỘT sản phẩm. Dùng để so sánh xưởng hoặc tính margin.',
+        'compare_factories',
+        'So sánh TẤT CẢ xưởng (partner_name) của MỘT sản phẩm: base cost min/max mỗi xưởng + sizes/màu. ' +
+          'Dùng sau khi đã chốt 1 loại sản phẩm cụ thể (UC-02 bước 2) hoặc để tính margin.',
         {
           short_code: {
             type: 'string',
@@ -275,7 +291,7 @@ export class PiAgentCoreRuntime implements AgentRuntime {
           },
         },
         ['short_code'],
-        (p) => this.burgerprints.getProductPricing(p.short_code),
+        (p) => this.burgerprints.compareFactories(p.short_code),
       ),
       tool(
         'get_product_variants',
@@ -292,6 +308,51 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             color: p.color,
             size: p.size,
             factory: p.factory,
+          }),
+      ),
+      tool(
+        'create_order',
+        'Tạo đơn fulfillment (UC-06, bonus). MẶC ĐỊNH sandbox=true (không phát sinh đơn thật). ' +
+          'CHỈ gọi sau khi seller đã xác nhận SKU + số lượng + địa chỉ ship. Đặt sandbox=false chỉ khi seller xác nhận đặt thật.',
+        {
+          shipping: {
+            type: 'object',
+            description: 'Thông tin nhận hàng',
+            properties: {
+              name: { type: 'string' },
+              address1: { type: 'string' },
+              address2: { type: 'string' },
+              city: { type: 'string' },
+              state: { type: 'string' },
+              zip: { type: 'string' },
+              country: { type: 'string', description: 'Mã quốc gia, vd US' },
+              email: { type: 'string' },
+              phone: { type: 'string' },
+            },
+            required: ['name', 'address1', 'city', 'state', 'zip', 'country'],
+          },
+          items: {
+            type: 'array',
+            description: 'Danh sách SKU + số lượng',
+            items: {
+              type: 'object',
+              properties: {
+                catalog_sku: { type: 'string' },
+                quantity: { type: 'number' },
+                design_url_front: { type: 'string' },
+                mockup_url_front: { type: 'string' },
+              },
+              required: ['catalog_sku', 'quantity'],
+            },
+          },
+          sandbox: { type: 'boolean', description: 'true = đơn thử (mặc định true)' },
+        },
+        ['shipping', 'items'],
+        (p) =>
+          this.burgerprints.createOrder({
+            shipping: p.shipping,
+            items: p.items,
+            sandbox: p.sandbox,
           }),
       ),
     ];

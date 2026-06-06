@@ -39,54 +39,111 @@ export class BurgerPrintsService {
   }
 
   // ──────────────────────────────────────────────────────────────────────
-  // Tool: tìm sản phẩm theo từ khoá / thị trường (UC-01, UC-02, UC-05)
+  // Tool: tìm sản phẩm theo category + market + max_base_cost (UC-01, UC-02, UC-05)
   // ──────────────────────────────────────────────────────────────────────
   async searchProducts(params: {
+    category?: string;
     keyword?: string;
     market?: string;
+    max_base_cost?: number;
     limit?: number;
   }): Promise<unknown> {
     const all = await this.getAllBaseProducts();
     if (!Array.isArray(all)) return all; // lỗi API có cấu trúc
 
-    const kw = (params.keyword ?? '').toLowerCase().trim();
+    const kw = (params.category ?? params.keyword ?? '').toLowerCase().trim();
     const market = this.normalizeMarket(params.market);
-    const limit = Math.min(params.limit ?? 15, 30);
+    const maxCost =
+      typeof params.max_base_cost === 'number' && params.max_base_cost > 0
+        ? params.max_base_cost
+        : null;
+    const limit = Math.min(params.limit ?? 15, 25);
 
+    // B1: lọc theo category (tên) + market từ catalog đã cache (rẻ)
     const matched = all
-      .map((p) => {
-        const meta = this.parseHtmlDesc(p.html_desc ?? '');
-        return {
-          short_code: p.short_code,
-          name: p.name,
-          market: this.marketOf(p.short_code, meta.location),
-          printing: meta.printing,
-          material: meta.material,
-          location: meta.location,
-        };
-      })
+      .map((p) => ({
+        short_code: p.short_code,
+        name: p.name,
+        market: this.marketOf(p.short_code, this.parseHtmlDesc(p.html_desc ?? '').location),
+        html_desc: p.html_desc,
+      }))
       .filter((p) => {
-        const kwOk =
-          !kw ||
-          p.name?.toLowerCase().includes(kw) ||
-          p.short_code?.toLowerCase().includes(kw);
+        const kwOk = !kw || p.name?.toLowerCase().includes(kw);
         const marketOk = !market || p.market === market;
         return kwOk && marketOk;
       });
 
+    // B2: enrich GIÁ (base cost) bằng product detail — fetch song song, có cache.
+    // Cap số sản phẩm enrich để giữ độ trễ hợp lý.
+    const ENRICH_CAP = 80;
+    const toEnrich = matched.slice(0, ENRICH_CAP);
+    const enriched = await this.mapLimit(toEnrich, 10, async (p) => {
+      const detail = await this.getProductDetail(p.short_code);
+      const d = (detail as any)?.data;
+      if (!d || (detail as any)?.error) {
+        return { ...p, base_cost: null, cheapest_factory: null, colors: null };
+      }
+      const v: any[] = d.variations ?? [];
+      let min = Infinity;
+      let factory: string | null = null;
+      for (const x of v) {
+        const pr = parseFloat(x.price);
+        if (!Number.isNaN(pr) && pr < min) {
+          min = pr;
+          factory = x.partner_name;
+        }
+      }
+      const meta = this.parseHtmlDesc(d.html_desc ?? '');
+      return {
+        short_code: p.short_code,
+        name: p.name,
+        market: p.market,
+        base_cost: Number.isFinite(min) ? min : null,
+        cheapest_factory: factory,
+        colors: (d.available_colors ?? []).length,
+        printing: meta.printing,
+        processing_time: meta.processingTime,
+      };
+    });
+
+    // B3: filter theo max_base_cost + sort theo giá tăng dần
+    let result = enriched.filter((r) => r.base_cost != null);
+    if (maxCost != null) result = result.filter((r) => (r.base_cost as number) <= maxCost);
+    result.sort((a, b) => (a.base_cost as number) - (b.base_cost as number));
+
     return {
+      query: { category: kw || null, market: market || null, max_base_cost: maxCost },
       total_matched: matched.length,
-      note:
-        'Giá nằm trong product detail (gọi get_product_pricing với short_code). ' +
-        'Phí ship theo điểm đến không có trong catalog.',
-      products: matched.slice(0, limit),
+      enriched: toEnrich.length,
+      qualified: result.length,
+      truncated: matched.length > ENRICH_CAP,
+      note: 'base_cost = giá vốn thấp nhất của sản phẩm (theo xưởng rẻ nhất). Phí/thời gian ship theo điểm đến KHÔNG có trong catalog; processing_time là thời gian sản xuất nếu API có ghi.',
+      products: result.slice(0, limit),
     };
   }
 
+  /** Chạy fn cho từng item với giới hạn concurrency. */
+  private async mapLimit<T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++;
+        out[idx] = await fn(items[idx]);
+      }
+    });
+    await Promise.all(workers);
+    return out;
+  }
+
   // ──────────────────────────────────────────────────────────────────────
-  // Tool: giá + so sánh xưởng cho 1 sản phẩm (UC-02, UC-03)
+  // Tool: so sánh xưởng cho 1 sản phẩm (UC-02 bước 2, UC-03)
   // ──────────────────────────────────────────────────────────────────────
-  async getProductPricing(shortCode: string): Promise<unknown> {
+  async compareFactories(shortCode: string): Promise<unknown> {
     const detail = await this.getProductDetail(shortCode);
     if (!detail || (detail as any).error) return detail;
     const d = (detail as any).data ?? detail;
@@ -147,6 +204,8 @@ export class BurgerPrintsService {
     const variations: any[] = d.variations ?? [];
     const limit = Math.min(filter.limit ?? 30, 60);
 
+    const oos = await this.getOutOfStockSet(); // SKU hết hàng (lọc/đánh dấu)
+
     const color = filter.color?.toLowerCase();
     const size = filter.size?.toLowerCase();
     const factory = filter.factory?.toLowerCase();
@@ -160,19 +219,123 @@ export class BurgerPrintsService {
       )
       .map((v) => ({
         sku: v.sku,
+        // catalog_sku = format dùng khi TẠO ĐƠN (short_code-Color-Size), khác sku nội bộ.
+        catalog_sku: `${d.short_code}-${v.color}-${v.size}`,
         color: v.color,
         size: v.size,
         price: v.price,
         second_price: v['2nd_price'],
         partner_name: v.partner_name,
+        in_stock: !oos.has(v.sku),
       }));
 
     return {
       short_code: d.short_code,
       name: d.name,
       total_matched: matched.length,
+      out_of_stock_count: matched.filter((m) => !m.in_stock).length,
+      note: 'Dùng catalog_sku (KHÔNG phải sku) khi create_order. in_stock=false là SKU hết hàng — không gợi ý/đặt.',
       variants: matched.slice(0, limit),
     };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Tool: tạo đơn hàng (UC-06 bonus) — mặc định sandbox để demo an toàn
+  // ──────────────────────────────────────────────────────────────────────
+  async createOrder(payload: {
+    shipping: {
+      name: string;
+      address1: string;
+      address2?: string;
+      city: string;
+      state: string;
+      zip: string;
+      country: string;
+      email?: string;
+      phone?: string;
+    };
+    items: Array<{
+      catalog_sku: string;
+      quantity: number;
+      design_url_front?: string;
+      mockup_url_front?: string;
+    }>;
+    reference_order_id?: string;
+    sandbox?: boolean;
+  }): Promise<unknown> {
+    const s = payload.shipping;
+    const body: Record<string, unknown> = {
+      shipping_name: s.name,
+      shipping_address1: s.address1,
+      shipping_address2: s.address2 ?? '',
+      shipping_city: s.city,
+      shipping_state: s.state,
+      shipping_zip: s.zip,
+      shipping_country: s.country,
+      shipping_email: s.email ?? '',
+      shipping_phone: s.phone ?? '',
+      reference_order_id: payload.reference_order_id ?? `agent-${Date.now()}`,
+      items: payload.items.map((it) => ({
+        catalog_sku: it.catalog_sku,
+        quantity: it.quantity,
+        ...(it.design_url_front ? { design_url_front: it.design_url_front } : {}),
+        ...(it.mockup_url_front ? { mockup_url_front: it.mockup_url_front } : {}),
+      })),
+      // Mặc định sandbox=true (không phát sinh đơn thật) trừ khi seller xác nhận thật.
+      sandbox: payload.sandbox ?? true,
+    };
+
+    try {
+      const res = await firstValueFrom(
+        this.http.post(`${this.baseUrl}/order`, body, {
+          headers: { 'api-key': this.apiKey, 'Content-Type': 'application/json' },
+          timeout: 20_000,
+        }),
+      );
+      return { sandbox: body.sandbox, result: res.data };
+    } catch (err) {
+      const msg = (err as any)?.response?.data ?? (err as Error).message;
+      this.logger.error(`Tạo đơn lỗi: ${JSON.stringify(msg)}`);
+      return {
+        error: true,
+        code: 'CREATE_ORDER_ERROR',
+        message: 'Không tạo được đơn',
+        detail: msg,
+      };
+    }
+  }
+
+  /** Tập SKU hết hàng từ /product/outofstock (paging + cache). */
+  private async getOutOfStockSet(): Promise<Set<string>> {
+    const cacheKey = 'catalog:oos';
+    const cached = await this.redis.get(cacheKey);
+    if (cached) return new Set(JSON.parse(cached));
+    const skus: string[] = [];
+    try {
+      let page = 1;
+      let total = Infinity;
+      while (skus.length < total && page <= 60) {
+        const res = await firstValueFrom(
+          this.http.get(`${this.baseUrl}/product/outofstock`, {
+            headers: { 'api-key': this.apiKey },
+            params: { page, page_size: 1000 },
+            timeout: 20_000,
+          }),
+        );
+        const data = res.data?.data ?? {};
+        total = data.total ?? skus.length;
+        const result: any[] = data.result ?? data.data ?? [];
+        if (result.length === 0) break;
+        for (const item of result) {
+          for (const sku of item.sku ?? []) skus.push(sku);
+        }
+        page += 1;
+      }
+      await this.redis.setEx(cacheKey, JSON.stringify(skus), this.cacheTtl);
+    } catch (err) {
+      this.logger.error(`outofstock lỗi: ${(err as Error).message}`);
+    }
+    return new Set(skus);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -266,16 +429,20 @@ export class BurgerPrintsService {
   // Helpers
   // ──────────────────────────────────────────────────────────────────────
 
-  /** Rút Material / Printing technique / Location từ html_desc (HTML). */
+  /** Rút Material / Printing technique / Location / Processing time từ html_desc (HTML). */
   private parseHtmlDesc(html: string): {
     material: string | null;
     printing: string | null;
     location: string | null;
+    processingTime: string | null;
   } {
     const text = html
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    const processingTime =
+      /Processing Time[:\s]*([^<.]+?)(?:\.|<|Shipping|$)/i.exec(text)?.[1]?.trim()?.slice(0, 50) ??
+      null;
     const printing =
       /(?:Printing tech\w*|Technique)[:\s]*([^.<]+?)(?:\.|Manufactured|Location|$)/i.exec(
         text,
@@ -292,6 +459,7 @@ export class BurgerPrintsService {
       material: material ? material.slice(0, 80) : null,
       printing: printing ? printing.trim().slice(0, 40) : null,
       location,
+      processingTime,
     };
   }
 
