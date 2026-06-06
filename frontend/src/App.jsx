@@ -262,7 +262,10 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>🍔 BurgerPrints Agent</h1>
+        <h1 className="flex items-center gap-2">
+          <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain rounded-md" />
+          BurgerPrints Agent
+        </h1>
         <div className="header-right">
           <span className={'status ' + (ready ? 'ok' : '')}>{status}</span>
           {ready && (
@@ -349,7 +352,10 @@ export default function App() {
             <button className="composer-plus" type="button" title="Add" disabled>
               <Plus size={18} strokeWidth={2} />
             </button>
-            <span className="composer-pill">🍔 BurgerPrints Agent</span>
+            <span className="composer-pill flex items-center gap-1.5">
+              <img src="/logo.png" alt="Logo" className="w-4.5 h-4.5 object-contain rounded" />
+              BurgerPrints Agent
+            </span>
             <div className="composer-spacer" />
             <button
               className="composer-send"
