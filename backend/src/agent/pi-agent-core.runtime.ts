@@ -126,14 +126,19 @@ export class PiAgentCoreRuntime implements AgentRuntime {
             status: 'running',
           });
           break;
-        case 'tool_execution_end':
+        case 'tool_execution_end': {
+          const details = event.result?.details ?? event.result;
+          const { count, results } = this.extractToolResults(event.toolName, details);
           push({
             type: 'tool',
             id: event.toolCallId,
             name: event.toolName,
             status: 'done',
+            count,
+            results,
           });
           break;
+        }
         case 'agent_end': {
           const errorMessage = agent.state?.errorMessage;
           if (errorMessage) {
@@ -176,39 +181,10 @@ export class PiAgentCoreRuntime implements AgentRuntime {
     }
   }
 
-  /** System prompt định hướng agent (vai trò, ngôn ngữ, quy trình tool, công thức margin). */
+  /** System prompt: dùng custom (nếu seller chỉnh) hoặc mặc định. */
   private buildSystemPrompt(input: AgentRunInput): string {
-    const lang = input.language === 'en' ? 'English' : 'Vietnamese';
-    return [
-      `You are BurgerPrintsAgent — a POD (print-on-demand) fulfillment catalog assistant for BurgerPrints sellers.`,
-      `Goal: help sellers SEARCH, COMPARE and CHOOSE products / factories / SKUs to fulfill, using ONLY real data from the tools.`,
-      ``,
-      `LANGUAGE: Always reply in ${lang} (mirror the seller's language). Be concise and decision-ready; use compact markdown tables when comparing.`,
-      ``,
-      `TOOLS & WORKFLOW:`,
-      `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category.`,
-      `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
-      `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
-      `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
-      ``,
-      `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
-      ``,
-      `KEY DATA FACTS:`,
-      `- "Factory" = partner_name. One product is fulfilled by MANY factories at different base costs.`,
-      `- "price" = base cost of the 1st item; "2nd_price" = cost from the 2nd item onward.`,
-      `- Market is inferred from short_code prefix (US.., EU.., AP..=CN).`,
-      `- in_stock=false → SKU is out of stock; don't recommend/order it.`,
-      `- ⚠️ Shipping fee/time by destination and factory rating are NOT in the catalog API. Never invent them; say they're not available and compare on base cost only.`,
-      ``,
-      `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute it then call search_products(max_base_cost=that).`,
-      ``,
-      `BEHAVIOR:`,
-      `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
-      `- No match → relax the filter and suggest the closest options; never return empty-handed silently.`,
-      `- Out-of-scope question → politely redirect to the BurgerPrints POD catalog.`,
-      `- NEVER invent catalog data, prices, factories or SKUs. If a tool returns an error, tell the seller you couldn't fetch the data.`,
-      `- After answering, suggest a helpful next step (e.g. "Want me to compare factories or show available colors?").`,
-    ].join('\n');
+    if (input.systemPrompt && input.systemPrompt.trim()) return input.systemPrompt;
+    return defaultSystemPrompt();
   }
 
   /**
@@ -229,6 +205,42 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       }
       return { role: 'user', content: t.content, timestamp };
     });
+  }
+
+  /** Trích vài kết quả đầu từ output tool để show trong timeline (như "8 results"). */
+  private extractToolResults(
+    toolName: string,
+    details: any,
+  ): { count?: number; results?: Array<{ title: string; meta?: string }> } {
+    if (!details || typeof details !== 'object') return {};
+    const money = (n: any) => (n != null && n !== '' ? `$${n}` : undefined);
+    let items: Array<{ title: string; meta?: string }> | undefined;
+    let count: number | undefined;
+
+    if (toolName === 'search_products' && Array.isArray(details.products)) {
+      count = details.qualified ?? details.products.length;
+      items = details.products.map((p: any) => ({
+        title: p.name ?? p.short_code,
+        meta: [money(p.base_cost), p.cheapest_factory].filter(Boolean).join(' · ') || undefined,
+      }));
+    } else if (toolName === 'compare_factories' && Array.isArray(details.factories)) {
+      count = details.factories.length;
+      items = details.factories.map((f: any) => ({
+        title: f.partner_name,
+        meta: money(f.min_price),
+      }));
+    } else if (toolName === 'get_product_variants' && Array.isArray(details.variants)) {
+      count = details.total_matched ?? details.variants.length;
+      items = details.variants.map((v: any) => ({
+        title: v.catalog_sku ?? v.sku,
+        meta: [`${v.color}/${v.size}`, money(v.price)].filter(Boolean).join(' · ') || undefined,
+      }));
+    } else if (toolName === 'create_order') {
+      const oid = details.result?.order_id;
+      if (oid) items = [{ title: `Đơn ${oid}`, meta: details.sandbox ? 'sandbox' : 'thật' }];
+    }
+
+    return { count, results: items?.slice(0, 8) };
   }
 
   /** Bộ tool tra cứu BurgerPrints API v2.0 (mỗi tool trả dữ liệu compact). */
@@ -357,4 +369,38 @@ export class PiAgentCoreRuntime implements AgentRuntime {
       ),
     ];
   }
+}
+
+/** Default system prompt (export để controller trả về cho FE chỉnh sửa). */
+export function defaultSystemPrompt(): string {
+  return [
+    `You are BurgerPrintsAgent — a POD (print-on-demand) fulfillment catalog assistant for BurgerPrints sellers.`,
+    `Goal: help sellers SEARCH, COMPARE and CHOOSE products / factories / SKUs to fulfill, using ONLY real data from the tools.`,
+    ``,
+    `LANGUAGE: Always reply in the SAME language as the seller's latest message (auto-detect). Be concise and decision-ready; use compact markdown tables when comparing.`,
+    ``,
+    `TOOLS & WORKFLOW:`,
+    `1. search_products(category, market?, max_base_cost?) → products of a type in a market, with base_cost (lowest), cheapest factory, color count, sorted by price. Pass max_base_cost to filter by budget. Use FIRST to discover products or list the sub-types of a category.`,
+    `2. compare_factories(short_code) → base cost per factory (partner_name) + sizes/colors for ONE product. Use after a specific product is chosen, to compare factories or for margin.`,
+    `3. get_product_variants(short_code, color?, size?, factory?) → concrete SKUs (sku, color, size, price, in_stock) for a product. Use for specific color/size or before ordering.`,
+    `4. create_order(shipping, items, sandbox?) → place a fulfillment order. Default sandbox=true (test). ONLY after the seller confirms SKU + quantity + shipping address.`,
+    ``,
+    `DISAMBIGUATION: a category can have many sub-types (Hoodie = Pullover / Zip-up / Crop / Kids...). Do NOT assume one product. First search_products to list sub-types, show a short summary, ask which one — THEN compare_factories for the chosen product. If seller says "all", group by sub-type (one section each); never merge different products into one table.`,
+    ``,
+    `KEY DATA FACTS:`,
+    `- "Factory" = partner_name. One product is fulfilled by MANY factories at different base costs.`,
+    `- "price" = base cost of the 1st item; "2nd_price" = cost from the 2nd item onward.`,
+    `- Market is inferred from short_code prefix (US.., EU.., AP..=CN).`,
+    `- in_stock=false → SKU is out of stock; don't recommend/order it.`,
+    `- Shipping fee/time by destination and factory rating are NOT in the catalog API. Never invent them; say they're not available and compare on base cost only.`,
+    ``,
+    `MARGIN: Gross Margin % = (SellPrice − BaseCost − Shipping) / SellPrice × 100. If shipping unknown, compute on base cost only and state the caveat. For "min margin X% at sell price P", max allowed base cost = P × (1 − X/100) — compute it then call search_products(max_base_cost=that).`,
+    ``,
+    `BEHAVIOR:`,
+    `- Vague query ("I want to sell shirts") → ask 1-2 clarifying questions (market? product type? target price?).`,
+    `- No match → relax the filter and suggest the closest options; never return empty-handed silently.`,
+    `- Out-of-scope question → politely redirect to the BurgerPrints POD catalog.`,
+    `- NEVER invent catalog data, prices, factories or SKUs. If a tool returns an error, tell the seller you couldn't fetch the data.`,
+    `- After answering, suggest a helpful next step.`,
+  ].join('\n');
 }

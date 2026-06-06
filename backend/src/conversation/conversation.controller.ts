@@ -2,15 +2,18 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Logger,
   Param,
   Post,
+  Put,
   Query,
   Sse,
   Req,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentChunk } from '../agent/agent.types';
+import { defaultSystemPrompt } from '../agent/pi-agent-core.runtime';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ConversationService } from './conversation.service';
@@ -40,6 +43,28 @@ export class ConversationController {
       dto.language ?? null,
     );
     return { sessionId: session.id };
+  }
+
+  /** Lấy system prompt hiện tại của phiên + bản mặc định (để FE chỉnh). */
+  @ApiAuth({ summary: 'Get conversation system prompt' })
+  @Get(':sessionId/system-prompt')
+  async getSystemPrompt(
+    @Param('sessionId') sessionId: string,
+  ): Promise<{ systemPrompt: string | null; default: string }> {
+    const custom = await this.conversation.getSystemPrompt(sessionId);
+    return { systemPrompt: custom, default: defaultSystemPrompt() };
+  }
+
+  /** Đặt/đổi system prompt cho phiên (rỗng = reset về mặc định). */
+  @ApiAuth({ summary: 'Set conversation system prompt' })
+  @Put(':sessionId/system-prompt')
+  async setSystemPrompt(
+    @Param('sessionId') sessionId: string,
+    @Body() body: { systemPrompt?: string },
+  ): Promise<{ ok: boolean; usingDefault: boolean }> {
+    await this.conversation.setSystemPrompt(sessionId, body?.systemPrompt ?? null);
+    const usingDefault = !(body?.systemPrompt && body.systemPrompt.trim());
+    return { ok: true, usingDefault };
   }
 
   /**
@@ -113,7 +138,13 @@ export class ConversationController {
       case 'thinking':
         return { text: chunk.text };
       case 'tool':
-        return { id: chunk.id, name: chunk.name, status: chunk.status };
+        return {
+          id: chunk.id,
+          name: chunk.name,
+          status: chunk.status,
+          count: chunk.count,
+          results: chunk.results,
+        };
       case 'error':
         return { code: chunk.code, message: chunk.message };
       case 'done':

@@ -41,11 +41,21 @@ export default function App() {
   const [messages, setMessages] = useState([]); // {role, text, steps, thinking}
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [promptBusy, setPromptBusy] = useState(false);
   const scrollRef = useRef(null);
   const taRef = useRef(null);
+  const stick = useRef(true); // chỉ auto-scroll khi user đang ở gần đáy
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' });
+    if (stick.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
   // Auto-resize textarea theo nội dung (cap 160px)
@@ -129,6 +139,7 @@ export default function App() {
     if (!msg || !sessionId || busy) return;
     setInput('');
     setBusy(true);
+    stick.current = true; // gửi tin mới → bám đáy
     setMessages((m) => [
       ...m,
       { role: 'user', text: msg },
@@ -185,7 +196,13 @@ export default function App() {
         const key = d.id || d.name;
         const idx = steps.findIndex((s) => (s.id || s.name) === key && s.status === 'running');
         if (d.status === 'done' && idx >= 0) {
-          steps[idx] = { ...steps[idx], status: 'done', endedAt: Date.now() };
+          steps[idx] = {
+            ...steps[idx],
+            status: 'done',
+            endedAt: Date.now(),
+            count: d.count,
+            results: d.results,
+          };
         } else if (d.status === 'running') {
           steps.push({ id: d.id, name: d.name, status: 'running', startedAt: Date.now() });
         }
@@ -196,13 +213,60 @@ export default function App() {
     }
   }
 
+  async function openPrompt() {
+    setShowPrompt(true);
+    setPromptText('Đang tải…');
+    try {
+      const r = await fetch(`${apiBase}/conversations/${sessionId}/system-prompt`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      setPromptText(d.systemPrompt ?? d.default ?? '');
+    } catch {
+      setPromptText('');
+    }
+  }
+
+  async function savePrompt(reset) {
+    setPromptBusy(true);
+    try {
+      await fetch(`${apiBase}/conversations/${sessionId}/system-prompt`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt: reset ? '' : promptText }),
+      });
+      if (reset) {
+        const r = await fetch(`${apiBase}/conversations/${sessionId}/system-prompt`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json();
+        setPromptText(d.default ?? '');
+      } else {
+        setShowPrompt(false);
+      }
+    } finally {
+      setPromptBusy(false);
+    }
+  }
+
   const ready = !!sessionId;
 
   return (
     <div className="app">
       <header>
         <h1>🍔 BurgerPrints Agent</h1>
-        <span className={'status ' + (ready ? 'ok' : '')}>{status}</span>
+        <div className="header-right">
+          <span className={'status ' + (ready ? 'ok' : '')}>{status}</span>
+          {ready && (
+            <button
+              onClick={openPrompt}
+              title="Sửa system prompt"
+              className="text-[12.5px] text-stone-500 border border-stone-200 bg-white hover:bg-stone-50 px-3 py-[5px] rounded-full transition-colors"
+            >
+              ⚙ Prompt
+            </button>
+          )}
+        </div>
       </header>
 
       {!ready && (
@@ -228,7 +292,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="chat" ref={scrollRef}>
+      <div className="chat" ref={scrollRef} onScroll={onScroll}>
         {messages.length > 0 && (
           <div className="text-center text-xs text-stone-400 font-medium mt-1 mb-1">Hôm nay</div>
         )}
@@ -290,6 +354,70 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showPrompt && (
+          <motion.div
+            className="fixed inset-0 bg-black/30 flex items-center justify-center p-6 z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setShowPrompt(false)}
+          >
+            <motion.div
+              className="bg-white rounded-2xl w-full max-w-2xl max-h-[84vh] flex flex-col p-5 shadow-2xl"
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between font-semibold text-stone-700 text-[15px]">
+                <span>⚙ System prompt của agent</span>
+                <button
+                  className="text-stone-400 hover:text-stone-600 text-base"
+                  onClick={() => setShowPrompt(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-[12.5px] text-stone-400 mt-1.5 mb-2.5">
+                Chỉnh cách agent hành xử cho phiên này. Để trống / Khôi phục mặc định để dùng prompt gốc.
+              </p>
+              <textarea
+                className="flex-1 min-h-[300px] resize-y border border-stone-200 rounded-xl p-3.5 text-[13px] leading-relaxed font-mono text-stone-800 outline-none focus:border-stone-300"
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                spellCheck={false}
+              />
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  className="border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 text-[13.5px] px-3.5 py-2 rounded-[10px] transition-colors disabled:opacity-50"
+                  onClick={() => savePrompt(true)}
+                  disabled={promptBusy}
+                >
+                  Khôi phục mặc định
+                </button>
+                <div className="flex-1" />
+                <button
+                  className="border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 text-[13.5px] px-3.5 py-2 rounded-[10px] transition-colors"
+                  onClick={() => setShowPrompt(false)}
+                >
+                  Huỷ
+                </button>
+                <button
+                  className="bg-stone-800 hover:bg-stone-700 text-white text-[13.5px] font-semibold px-[18px] py-2 rounded-[10px] transition-colors disabled:bg-stone-300"
+                  onClick={() => savePrompt(false)}
+                  disabled={promptBusy}
+                >
+                  {promptBusy ? 'Đang lưu…' : 'Lưu'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -310,13 +438,20 @@ function AssistantMessage({ msg, streaming }) {
           name: s.name,
           label: toolLabel(s.name),
           status: s.status,
-          count: 1,
+          calls: 1,
           ts: s.startedAt,
+          count: s.count,
+          results: s.results,
         });
       } else {
-        cur.count += 1;
+        cur.calls += 1;
         if (s.status === 'running') cur.status = 'running';
         else if (cur.status !== 'running') cur.status = 'done';
+        // giữ kết quả mới nhất (step done có results)
+        if (s.results) {
+          cur.results = s.results;
+          cur.count = s.count;
+        }
       }
     }
     return [...list, ...byName.values()];
@@ -423,12 +558,38 @@ function Trace({ entries, streaming }) {
                       {itemIcon(e.kind)}
                     </span>
                     <div className={e.kind === 'think' ? 'text-stone-600' : ''}>
-                      {e.label}
-                      {e.kind === 'tool' && e.count > 1 && (
-                        <span className="ml-1.5 text-stone-400">×{e.count}</span>
-                      )}
-                      {e.kind === 'tool' && e.status === 'running' && (
-                        <span className="ml-2 text-[13px] text-stone-400">đang chạy…</span>
+                      <div className="flex items-baseline">
+                        <span>{e.label}</span>
+                        {e.kind === 'tool' && e.calls > 1 && (
+                          <span className="ml-1.5 text-stone-400">×{e.calls}</span>
+                        )}
+                        {e.kind === 'tool' && e.count != null && (
+                          <span className="ml-2 text-[13px] text-stone-400">{e.count} kết quả</span>
+                        )}
+                        {e.kind === 'tool' && e.status === 'running' && (
+                          <span className="ml-2 text-[13px] text-stone-400">đang chạy…</span>
+                        )}
+                      </div>
+                      {e.results?.length > 0 && (
+                        <div className="mt-1.5 rounded-xl border border-stone-200 bg-stone-50/60 overflow-hidden">
+                          {e.results.map((r, ri) => (
+                            <div
+                              key={ri}
+                              className="flex items-center gap-2 px-3 py-1.5 text-[13px] border-b border-stone-100 last:border-b-0"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-stone-300 flex-none" />
+                              <span className="text-stone-700 truncate flex-1">{r.title}</span>
+                              {r.meta && (
+                                <span className="text-stone-400 flex-none">{r.meta}</span>
+                              )}
+                            </div>
+                          ))}
+                          {e.count > e.results.length && (
+                            <div className="px-3 py-1.5 text-[12px] text-stone-400">
+                              +{e.count - e.results.length} nữa
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

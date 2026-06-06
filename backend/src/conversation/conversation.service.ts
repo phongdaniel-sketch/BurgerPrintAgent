@@ -4,6 +4,7 @@ import { AgentChunk } from '../agent/agent.types';
 import { SessionService } from '../session/session.service';
 import { ConversationSession, Language } from '../session/session.types';
 import { ConversationRepository } from './conversation.repository';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class ConversationService {
@@ -13,7 +14,23 @@ export class ConversationService {
     private readonly sessions: SessionService,
     @Inject(AGENT_RUNTIME) private readonly agent: AgentRuntime,
     private readonly conversationRepo: ConversationRepository,
+    private readonly redis: RedisService,
   ) {}
+
+  // ── Custom system prompt theo phiên (Redis) ──────────────────────────
+  private spKey(sessionId: string): string {
+    return `session:${sessionId}:sysprompt`;
+  }
+  async getSystemPrompt(sessionId: string): Promise<string | null> {
+    return this.redis.get(this.spKey(sessionId));
+  }
+  async setSystemPrompt(sessionId: string, prompt: string | null): Promise<void> {
+    if (prompt && prompt.trim()) {
+      await this.redis.setEx(this.spKey(sessionId), prompt, 7 * 24 * 3600);
+    } else {
+      await this.redis.del(this.spKey(sessionId));
+    }
+  }
 
   async createConversation(
     userId: string,
@@ -47,6 +64,7 @@ export class ConversationService {
 
     const session = await this.sessions.getSessionOrThrow(sessionId);
     const history = await this.sessions.getContextTurns(sessionId);
+    const systemPrompt = (await this.getSystemPrompt(sessionId)) ?? undefined;
 
     let assembled = '';
     let errored = false;
@@ -57,6 +75,7 @@ export class ConversationService {
         message,
         language: session.language,
         history,
+        systemPrompt,
       })) {
         if (chunk.type === 'token') assembled += chunk.text;
         if (chunk.type === 'error') errored = true;

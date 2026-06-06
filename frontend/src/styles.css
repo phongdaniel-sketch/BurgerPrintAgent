@@ -29,6 +29,8 @@ header {
 header h1 { font-size: 16px; font-weight: 650; margin: 0; color: #44413c; }
 .status { font-size: 12px; color: #a8a29a; }
 .status.ok { color: #6b8e6b; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+/* Nút Prompt + modal dùng Tailwind + framer-motion (xem App.jsx) */
 
 /* ── Connect form ── */
 .connect {
